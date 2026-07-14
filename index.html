@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-1">
+<meta name="puzzle-build" content="pwa-20260715-2">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -51,7 +51,7 @@
     try { if(!window.name||window.name.startsWith(namePrefix)) window.name=namePrefix+JSON.stringify(saved); } catch(_) {}
   };
   function apply(){
-    const viewport=window.visualViewport,width=Math.round(viewport?.width||window.innerWidth),height=Math.round(viewport?.height||window.innerHeight),kind=width>=height?'landscape':'portrait',key=storageKey(kind);
+    const viewport=window.visualViewport,width=Math.round(viewport?.width||window.innerWidth),height=Math.round(viewport?.height||window.innerHeight),kind=phone?'phone':width>=height?'landscape':'portrait',key=storageKey(kind);
     if(kind!==state.kind||key!==state.key) {
       const saved=read(key); state.kind=kind; state.key=key; state.width=Math.max(width,saved?.width||0); state.height=Math.max(height,saved?.height||0);
     } else {
@@ -75,7 +75,6 @@
   body { display:grid; align-items:start; justify-items:center; width:var(--app-w); height:var(--app-h); font-family:"Yu Gothic UI","Meiryo",sans-serif; }
   canvas { width:min(var(--app-w),calc(var(--app-h) * 1.777777)); height:min(calc(var(--app-w) * .5625),var(--app-h)); display:block; touch-action:none; outline:none; }
   canvas:focus-visible { outline:none; }
-  #rotate-notice { display:none; position:fixed; inset:0; z-index:5; place-items:center; text-align:center; background:#071018; color:#e8f9ff; font-size:30px; font-weight:800; line-height:1.8; }
   #creator-meta { position:fixed; inset:0; z-index:10; display:grid; place-items:center; padding:24px; background:rgba(2,10,16,.82); }
   #creator-meta[hidden] { display:none; }
   #creator-meta form { width:min(720px,100%); padding:28px 32px; border:2px solid #4e8499; border-radius:22px; background:#101d2c; color:#effbff; box-shadow:0 24px 80px rgba(0,0,0,.45); }
@@ -102,20 +101,16 @@
   /* Phone UI is a native portrait renderer.  It is width-limited on tall phones,
      so browser chrome changing the available height cannot resize the controls. */
   html[data-phone-ui="1"], html[data-phone-ui="1"] body { width:100%; min-width:100%; height:100%; min-height:100%; }
-  html[data-phone-ui="1"] body { position:fixed; inset:0; display:grid; place-items:center; padding:max(env(safe-area-inset-top),4px) max(env(safe-area-inset-right),4px) max(env(safe-area-inset-bottom),4px) max(env(safe-area-inset-left),4px); transform:none; overflow:hidden; }
+  html[data-phone-ui="1"] body { position:fixed; inset:0; display:grid; place-items:center; padding:max(env(safe-area-inset-top),4px) max(env(safe-area-inset-right),4px) max(env(safe-area-inset-bottom),4px) max(env(safe-area-inset-left),4px); transform:none; overflow:hidden; background:radial-gradient(circle at 50% 0%,#123951 0,#071018 48%,#04080f 100%); }
   html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); height:auto; max-height:calc(100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); aspect-ratio:auto; }
   @media (display-mode: fullscreen), (display-mode: standalone) { html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); } }
   html[data-phone-ui="1"] #creator-meta, html[data-phone-ui="1"] #p2p-code { padding:max(env(safe-area-inset-top),12px) max(env(safe-area-inset-right),12px) max(env(safe-area-inset-bottom),12px) max(env(safe-area-inset-left),12px); }
   html[data-phone-ui="1"] #creator-meta form, html[data-phone-ui="1"] #p2p-code form { width:min(92vw,620px); max-height:92dvh; overflow:auto; padding:22px; }
-  html[data-portrait-shell-test] body { position:fixed; left:50%; top:50%; width:var(--app-h); height:var(--app-w); transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
-  html[data-portrait-shell-test] canvas { width:100%; height:100%; }
-  html[data-portrait-shell-test] #rotate-notice { display:none; }
   @media (prefers-reduced-motion: reduce) { canvas { image-rendering:pixelated; } }
 </style>
 </head>
 <body>
 <canvas id="game" width="1600" height="900" tabindex="0" aria-label="PUZZ-LE。読み込み中"></canvas>
-<div id="rotate-notice">端末を横向きにしてください<br><small>PUZZ-LE は横持ちで遊びます</small></div>
 <div id="creator-meta" hidden>
   <form id="creator-meta-form">
     <h2>作品の情報</h2>
@@ -2989,15 +2984,12 @@
   }
   function gamepadPresent() { return GAMEPAD_TEST || [...(navigator.getGamepads?.() || [])].some(Boolean); }
   function touchControlsVisible() { return touchCapable && !gamepadPresent(); }
-  function portraitLandscapeShell() {
-    return !PHONE_UI && document.documentElement.dataset.portraitShellTest==='1';
-  }
   let fullscreenRequestPending=false;
   function fullscreenElement() { return document.fullscreenElement||document.webkitFullscreenElement||null; }
   function installedFullscreenMode() { return matchMedia('(display-mode: fullscreen)').matches; }
   function installedAppMode() { return installedFullscreenMode()||matchMedia('(display-mode: standalone)').matches||navigator.standalone===true; }
   function lockAppOrientation() {
-    // The OS stays portrait-locked; CSS rotates the complete game shell.
+    if(!PHONE_UI) return Promise.resolve();
     try { return Promise.resolve(window.screen?.orientation?.lock?.('portrait-primary')).catch(()=>{}); }
     catch(_) { return Promise.resolve(); }
   }
@@ -3023,6 +3015,7 @@
   }
   function enterMobileConsoleMode() {
     if(!touchCapable) return;
+    lockAppOrientation();
     requestAppFullscreen(true);
   }
   function touchButtonRects() {
@@ -3054,12 +3047,6 @@
       const hit=[...phoneHitRegions].reverse().find(region=>x>=region.x&&x<=region.x+region.w&&y>=region.y&&y<=region.y+region.h);
       if(hit) { enterMobileConsoleMode(); hit.run(x,y); if(hit.repeat&&hit.action) { touchRepeatAction=hit.action; touchRepeatAt=performance.now()+170; canvas.setPointerCapture?.(event.pointerId); } }
       return;
-    }
-    // A portrait-locked phone can be physically held sideways. The visual shell is
-    // rotated 90 degrees, so feed the existing landscape hit tests virtual coords.
-    if(portraitLandscapeShell()) {
-      const rect=canvas.getBoundingClientRect(), nx=(event.clientX-rect.left)/rect.width, ny=(event.clientY-rect.top)/rect.height;
-      event={clientX:rect.left+ny*rect.width,clientY:rect.top+(1-nx)*rect.height,pointerId:event.pointerId};
     }
     const touchRect=canvas.getBoundingClientRect(), touchX=(event.clientX-touchRect.left)*W/touchRect.width, touchY=(event.clientY-touchRect.top)*H/touchRect.height;
     const inside=(x,y,w,h)=>touchX>=x&&touchX<=x+w&&touchY>=y&&touchY<=y+h;
@@ -3116,13 +3103,12 @@
       if(hit.repeat) { touchRepeatAction=hit.action; touchRepeatAt=performance.now()+170; canvas.setPointerCapture?.(event.pointerId); }
     }
   }, {passive:false});
-  // Some installed mobile WebViews synthesize only `click` after a fullscreen/orientation transition.
+  // Some installed mobile WebViews synthesize only `click` after a fullscreen transition.
   // Keep the single reconnect-screen button usable there without double-firing normal pointer input.
   canvas.addEventListener('click', event=>{
     if(phase!=='onlineMatchWait'||P2P.intentional) return;
-    let point=event; const rect=canvas.getBoundingClientRect();
-    if(portraitLandscapeShell()) { const nx=(event.clientX-rect.left)/rect.width,ny=(event.clientY-rect.top)/rect.height; point={clientX:rect.left+ny*rect.width,clientY:rect.top+(1-nx)*rect.height}; }
-    const x=(point.clientX-rect.left)*W/rect.width,y=(point.clientY-rect.top)*H/rect.height;
+    const rect=canvas.getBoundingClientRect();
+    const x=(event.clientX-rect.left)*W/rect.width,y=(event.clientY-rect.top)*H/rect.height;
     if(x>=520&&x<=1080&&y>=535&&y<=615) command('cancel');
   });
   for(const eventName of ['pointerup','pointercancel','pointerleave']) canvas.addEventListener(eventName, event=>{
@@ -3923,28 +3909,35 @@
     if(truncated&&lines.length) { let last=lines.at(-1); while(last&&ctx.measureText(`${last}…`).width>width) last=last.slice(0,-1); lines[lines.length-1]=`${last}…`; }
     lines.forEach((entry,index)=>phoneText(entry,x,y+index*lineHeight,size,color,align,weight)); return lines.length;
   }
+  function phoneBackdrop() {
+    const bg=ctx.createLinearGradient(0,0,W,H); bg.addColorStop(0,'#102d42'); bg.addColorStop(.42,'#071827'); bg.addColorStop(1,'#040912'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    const glow=ctx.createRadialGradient(W*.5,80,20,W*.5,80,780); glow.addColorStop(0,'rgba(74,202,255,.16)'); glow.addColorStop(.55,'rgba(35,105,150,.045)'); glow.addColorStop(1,'rgba(0,0,0,0)'); ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
+  }
   function phoneButton(x,y,w,h,label,run,{selected=false,tone='#17384a',color='#effbff',repeat=false,action=''}={}) {
-    ctx.save(); ctx.fillStyle=selected?'#24566e':tone; rr(x,y,w,h,20); ctx.strokeStyle=selected?'#b7efff':'#5d9fb6'; ctx.lineWidth=selected?4:2; ctx.stroke(); ctx.restore();
+    ctx.save(); const fill=ctx.createLinearGradient(x,y,x,y+h); fill.addColorStop(0,selected?'#317797':tone); fill.addColorStop(1,selected?'#18455d':'#0b1d2a'); ctx.fillStyle=fill; ctx.shadowColor=selected?'rgba(91,211,255,.32)':'rgba(0,0,0,.34)'; ctx.shadowBlur=selected?18:9; ctx.shadowOffsetY=5; rr(x,y,w,h,20); ctx.shadowBlur=0;
+    ctx.fillStyle='rgba(255,255,255,.075)'; rr(x+3,y+3,w-6,Math.max(12,h*.18),15); ctx.strokeStyle=selected?'#c0f4ff':'#4e8499'; ctx.lineWidth=selected?4:2; ctx.stroke(); ctx.restore();
     phoneWrap(label,x+w/2,y+h/2-((String(label).length>8)?18:0),w-28,String(label).length>10?30:36,color,'center','900',2,38); phoneHit(x,y,w,h,run,repeat,action);
   }
   function phoneHeader(title,{back=true,detail=''}={}) {
-    ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#102534'; rr(18,18,864,104,24); ctx.strokeStyle='#37687e'; ctx.lineWidth=2; ctx.stroke();
+    phoneBackdrop(); ctx.save(); ctx.shadowColor='rgba(0,0,0,.38)'; ctx.shadowBlur=18; ctx.shadowOffsetY=7; ctx.fillStyle='#0b2132'; rr(18,18,864,104,24); ctx.restore();
+    const rail=ctx.createLinearGradient(34,0,866,0); rail.addColorStop(0,'#5bdcff'); rail.addColorStop(.48,'#82f0d6'); rail.addColorStop(1,'rgba(130,240,214,0)'); ctx.fillStyle=rail; rr(38,22,808,5,3); ctx.strokeStyle='#37687e'; ctx.lineWidth=2; ctx.stroke();
     if(back) phoneButton(34,36,132,68,'戻る',()=>command('cancel'),{tone:'#122c3b'});
     phoneText(title,back?190:48,70,title.length>13?38:46,'#effbff','left','900'); if(detail) phoneText(detail,856,72,30,'#9ed5e7','right','800');
   }
   function phoneMenuCard(x,y,w,h,title,detail,selected,run,{accent='#8bdcff',icon=''}={}) {
-    ctx.fillStyle=selected?'#1b455a':'#0c2230'; rr(x,y,w,h,20); ctx.strokeStyle=selected?accent:'#294d60'; ctx.lineWidth=selected?4:2; ctx.stroke();
-    const iconChars=[...String(icon)].length, titleInset=icon?(iconChars>1?120:74):28;
-    if(icon) phoneText(icon,x+(iconChars>1?54:38),y+44,iconChars>1?34:42,'#ffe18a','center','900');
-    phoneWrap(title,x+titleInset,y+38,w-titleInset-28,38,selected?'#ffffff':'#d8f3fb','left','900',2,44);
-    if(detail) phoneWrap(detail,x+28,y+h-46,w-56,30,selected?'#c8edf7':'#8fb6c3','left','700',2,36);
-    phoneHit(x,y,w,h,run);
+    ctx.save(); const fill=ctx.createLinearGradient(x,y,x,y+h); fill.addColorStop(0,selected?'#1d526a':'#102b3c'); fill.addColorStop(1,selected?'#123548':'#091a28'); ctx.fillStyle=fill; ctx.shadowColor=selected?`${accent}55`:'rgba(0,0,0,.3)'; ctx.shadowBlur=selected?20:8; ctx.shadowOffsetY=6; rr(x,y,w,h,22); ctx.shadowBlur=0;
+    ctx.fillStyle=selected?accent:'rgba(124,207,237,.4)'; rr(x+3,y+18,5,h-36,3); ctx.strokeStyle=selected?accent:'#31576a'; ctx.lineWidth=selected?4:2; ctx.stroke(); ctx.restore();
+    const iconChars=[...String(icon)].length, titleInset=icon?(iconChars>1?130:92):36;
+    if(icon) { ctx.fillStyle='rgba(145,225,250,.1)'; rr(x+22,y+24,58,58,18); phoneText(icon,x+51,y+53,iconChars>1?30:38,'#ffe18a','center','900'); }
+    phoneWrap(title,x+titleInset,y+40,w-titleInset-68,38,selected?'#ffffff':'#d8f3fb','left','900',2,44);
+    if(detail) phoneWrap(detail,x+titleInset,y+h-45,w-titleInset-84,30,selected?'#d4f6ff':'#91b9c7','left','700',2,36);
+    phoneText('›',x+w-30,y+h/2,42,selected?accent:'#6d9aaa','center','800'); phoneHit(x,y,w,h,run);
   }
   function phoneWindow(items,index,count=8) { if(items.length<=count) return {items,start:0}; const start=Math.max(0,Math.min(items.length-count,index-Math.floor(count/2))); return {items:items.slice(start,start+count),start}; }
   function phoneBottomBack(label='戻る') { phoneButton(34,H-108,260,82,label,()=>command('cancel'),{tone:'#122c3b'}); }
   function phoneDrawNext() {
-    phoneText('NEXT',24,120,34,'#9ed5e7','left','900');
-    nextQueue.slice(0,3).forEach((spec,index)=>{ const y=145+index*150; ctx.fillStyle='#0c2230'; rr(16,y,156,128,16); ctx.strokeStyle='#31576a'; ctx.lineWidth=2; ctx.stroke(); drawPiecePreview(spec,20,y+4,148,120,28); phoneText(`${index+1}`,154,y+102,28,'#9fd8eb','right','800'); });
+    ctx.fillStyle='#0a2030'; rr(14,92,162,510,22); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke(); phoneText('NEXT',30,120,30,'#9ed5e7','left','900');
+    nextQueue.slice(0,3).forEach((spec,index)=>{ const y=145+index*150; ctx.fillStyle='#071827'; rr(22,y,146,128,16); ctx.strokeStyle='#31576a'; ctx.lineWidth=2; ctx.stroke(); drawPiecePreview(spec,20,y+4,148,120,28); phoneText(`${index+1}`,152,y+102,27,'#9fd8eb','right','800'); });
     if(nextQueue.length>3) phoneText(`+${Math.max(0,NEXT_COUNT-3)}`,94,600,30,'#7daaba','center','800');
   }
   function phoneDrawOpponent() {
@@ -3957,7 +3950,8 @@
   }
   function phoneDrawGameSidebars() {
     phoneDrawNext();
-    phoneText(String(score).padStart(6,'0'),882,122,34,'#ffe18a','right','900'); phoneText(`${turn}手`,882,164,30,'#b9eaff','right','800'); phoneText(`速さ ${paceLevel()}`,882,202,30,paceLevel()>=5?'#ffe18a':'#9ec9d7','right','800'); phoneText(`空き ${headroom()}`,882,240,30,headroom()<5?'#ff9b7a':'#9ec9d7','right','800');
+    ctx.fillStyle='#0a2030'; rr(730,92,156,188,22); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
+    phoneText(String(score).padStart(6,'0'),868,122,32,'#ffe18a','right','900'); phoneText(`${turn}手`,868,164,29,'#b9eaff','right','800'); phoneText(`速さ ${paceLevel()}`,868,202,29,paceLevel()>=5?'#ffe18a':'#9ec9d7','right','800'); phoneText(`空き ${headroom()}`,868,240,29,headroom()<5?'#ff9b7a':'#9ec9d7','right','800');
     if(puzzleState) phoneWrap(`残り ${Math.max(0,puzzleState.turnLimit-turn)}手\n${ACTIVE_PUZZLE.goal.text}`,742,300,142,30,'#ffe18a','left','800',4,38);
     else if(ROGUE_ENABLED) phoneWrap(rogueObjectiveStatus(),742,300,142,30,'#b9eaff','left','800',5,38);
     const selected=releaseTargetGroup(); if(selected) { const first=selected.cells[0],name=colorById(board[first[1]][first[0]].color).name,forecast=releaseForecast(selected); phoneText('ボム',742,410,30,'#9ed5e7','left','900'); phoneWrap(`${name}\n圧 ${selected.pressure}/${RULES.pressure.threshold}\n${forecast.cleared}マス`,742,454,142,31,releaseWindow?.armed?'#9cf7c1':'#ffe18a','left','900',4,39); }
@@ -3968,7 +3962,9 @@
     // Keep the phone controls visible even when a paired pad is detected. A
     // browser can expose a dormant pad, and hiding the only touch controls
     // would otherwise leave a phone session unusable.
-    const offset=Math.round(PHONE_EXTRA*.55);
+    const offset=Math.round(PHONE_EXTRA*.55), dockY=1142+offset;
+    ctx.fillStyle='#091d2b'; rr(12,dockY,876,420,32); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
+    phoneText('ボム',28,dockY+28,25,'#8ebaca','left','900'); phoneText('移動',30,dockY+132,25,'#8ebaca','left','900'); phoneText('回転・落下',480,dockY+132,25,'#8ebaca','left','900');
     phoneButton(24,1168+offset,260,82,groups.size?'ボムを選ぶ':'ボムなし',()=>command('reserve'),{tone:groups.size?'#17384a':'#10202b'});
     phoneButton(302,1168+offset,430,82,releaseWindow?(releaseWindow.armed?'予約中':'爆発を予約'):'ボムを作ろう',()=>command('confirm'),{selected:!!releaseWindow?.armed,tone:releaseWindow?'#284d38':'#10202b'});
     phoneButton(750,1168+offset,126,82,'停止',()=>command('pause'),{tone:'#273342'});
@@ -3976,7 +3972,7 @@
     phoneButton(480,1280+offset,130,100,'左回転',()=>command('rotateLeft'),{tone:'#1a4052'}); phoneButton(624,1400+offset,250,134,'即落下',()=>command('drop'),{selected:true,tone:'#24566e'}); phoneButton(744,1280+offset,130,100,'右回転',()=>command('rotateRight'),{tone:'#1a4052'});
   }
   function phoneDrawGameplay() {
-    const bg=ctx.createLinearGradient(0,0,W,H); bg.addColorStop(0,'#0b1d2a'); bg.addColorStop(1,'#050a12'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    phoneBackdrop(); ctx.save(); ctx.shadowColor='rgba(67,203,255,.2)'; ctx.shadowBlur=28; ctx.fillStyle='#071522'; rr(BX-16,BY-16,BW+32,BH+32,28); ctx.restore(); ctx.strokeStyle='#3b7890'; ctx.lineWidth=2; ctx.stroke();
     drawBoard(); phoneDrawGameSidebars(); phoneDrawGameControls();
     if(cardEffectText&&performance.now()<cardEffectUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1080,520,64,18); phoneWrap(cardEffectText,450,1110,480,30,'#ffe18a','center','900',2,34); }
     else if(toast&&performance.now()<toastUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1080,520,64,18); phoneWrap(toast,450,1110,480,30,'#e3faff','center','800',2,34); }
@@ -4196,8 +4192,8 @@
   }
   if(QUERY.has('replay')) document.documentElement.dataset.replayImport=IMPORTED_REPLAY ? `accepted-v${IMPORTED_REPLAY.version}-from-v${IMPORTED_REPLAY.migratedFrom}` : `rejected-${REPLAY_IMPORT_ERROR}`;
   if(QUERY.get('touch') === '1') document.documentElement.dataset.touchTest=touchControlsVisible() ? 'controls-enabled' : 'controls-hidden';
-  if(QUERY.get('portraitTest') === '1') document.documentElement.dataset.portraitShellTest='1';
   if(GAMEPAD_TEST) document.documentElement.dataset.gamepadTest=gamepadPresent() && !touchControlsVisible() ? 'gamepad-ui-enabled' : 'gamepad-ui-failed';
+  if(PHONE_UI) lockAppOrientation();
   resetGame();
   if(COMMUNITY_REQUESTED) openCommunityBrowser();
   else if(CREATOR_LIBRARY_REQUESTED) phase='creatorLibrary';
