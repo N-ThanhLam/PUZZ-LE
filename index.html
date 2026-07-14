@@ -3773,7 +3773,13 @@
     if(reloadStarted) return;
     if(!atSafeReloadPoint()) { sessionStorage.setItem(PENDING_KEY,'1'); notice('更新があります。タイトルに戻ると自動で反映します。'); return; }
     reloadStarted=true; sessionStorage.removeItem(PENDING_KEY); notice('最新版へ更新しています…');
-    await refreshOfflineShell(); setTimeout(()=>location.reload(),120);
+    await refreshOfflineShell();
+    // A mode/puzzle URL rebuilds that board on load. Finish an update at the
+    // clean title URL, and replace history so Back cannot reopen the old board.
+    setTimeout(()=>{
+      if(location.search||location.hash) location.replace(location.pathname);
+      else location.reload();
+    },120);
   }
   function applyPendingReload(){ if(sessionStorage.getItem(PENDING_KEY)==='1'&&atSafeReloadPoint()) reloadWhenSafe(); }
   async function signature(text){
@@ -3800,7 +3806,7 @@
   });
   addEventListener('online',checkForUpdate);
   document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ checkForUpdate(); applyPendingReload(); } });
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(navigator.serviceWorker.controller){ sessionStorage.setItem(PENDING_KEY,'1'); reloadWhenSafe(); } });
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(navigator.serviceWorker.controller&&!reloadStarted){ sessionStorage.setItem(PENDING_KEY,'1'); reloadWhenSafe(); } });
 })();
 </script>
 </body>
