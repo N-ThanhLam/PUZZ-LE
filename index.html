@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-7">
+<meta name="puzzle-build" content="pwa-20260715-10">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,7 +25,13 @@
   const forcedPhone=query.get('phone')==='1', phone=forcedPhone||(query.get('desktop')!=='1'&&matchMedia('(pointer: coarse)').matches&&shortSide<=720);
   document.documentElement.dataset.phoneUi=phone?'1':'0';
   if(phone) {
-    const phoneShort=forcedPhone?Math.min(innerWidth,innerHeight):shortSide, longSide=forcedPhone?Math.max(innerWidth,innerHeight):Math.max(Number(display.width)||innerWidth,Number(display.height)||innerHeight), phoneCanvasH=Math.max(1600,Math.min(2000,Math.round(900*longSide/Math.max(1,phoneShort))));
+    const phoneShort=forcedPhone?Math.min(innerWidth,innerHeight):shortSide, longSide=forcedPhone?Math.max(innerWidth,innerHeight):Math.max(Number(display.width)||innerWidth,Number(display.height)||innerHeight);
+    const measuredPhoneCanvasH=Math.max(1600,Math.min(2000,Math.round(900*longSide/Math.max(1,phoneShort))));
+    const canvasKey=`puzzle-le-phone-canvas-v1:${Math.round(Number(display.width)||0)}x${Math.round(Number(display.height)||0)}@${Math.round((devicePixelRatio||1)*100)}`;
+    let storedPhoneCanvasH=0;
+    try { storedPhoneCanvasH=Number(sessionStorage.getItem(canvasKey))||0; } catch(_) {}
+    const phoneCanvasH=storedPhoneCanvasH>=1600&&storedPhoneCanvasH<=2000?storedPhoneCanvasH:measuredPhoneCanvasH;
+    try { sessionStorage.setItem(canvasKey,String(phoneCanvasH)); } catch(_) {}
     document.documentElement.dataset.phoneCanvasH=String(phoneCanvasH);
     document.documentElement.style.setProperty('--phone-aspect',String(900/phoneCanvasH));
   }
@@ -132,8 +138,7 @@
      so browser chrome changing the available height cannot resize the controls. */
   html[data-phone-ui="1"], html[data-phone-ui="1"] body { width:100%; min-width:100%; height:100%; min-height:100%; }
   html[data-phone-ui="1"] body { position:fixed; inset:0; display:grid; place-items:center; padding:max(env(safe-area-inset-top),4px) max(env(safe-area-inset-right),4px) max(env(safe-area-inset-bottom),4px) max(env(safe-area-inset-left),4px); transform:none; overflow:hidden; background:radial-gradient(circle at 50% 0%,#123951 0,#071018 48%,#04080f 100%); }
-  html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); height:auto; max-height:calc(100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); aspect-ratio:var(--phone-aspect); }
-  @media (display-mode: fullscreen), (display-mode: standalone) { html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); } }
+  html[data-phone-ui="1"] canvas { width:min(calc(var(--app-w) - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((var(--app-h) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); height:auto; max-height:calc(var(--app-h) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); aspect-ratio:var(--phone-aspect); }
   html[data-phone-ui="1"] #creator-meta, html[data-phone-ui="1"] #p2p-code { padding:max(env(safe-area-inset-top),12px) max(env(safe-area-inset-right),12px) max(env(safe-area-inset-bottom),12px) max(env(safe-area-inset-left),12px); }
   html[data-phone-ui="1"] #creator-meta form, html[data-phone-ui="1"] #p2p-code form { width:min(92vw,620px); max-height:92dvh; overflow:auto; padding:22px; }
   @media (prefers-reduced-motion: reduce) { canvas { image-rendering:pixelated; } }
@@ -2905,7 +2910,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
       if(name==='left'||name==='rotateLeft'||name==='up') { draftMenuIndex=(draftMenuIndex+draftOffers.length-1)%draftOffers.length; return; }
       if(name==='right'||name==='rotateRight'||name==='down') { draftMenuIndex=(draftMenuIndex+1)%draftOffers.length; return; }
       if(name==='reserve') { rerollDraft(); return; }
-      if(name==='cancel'||name==='pause') { startRun(); return; }
+      if(name==='cancel') { startRun(); return; }
+      if(name==='pause') { navigateApp(location.pathname); return; }
       if(['confirm','start'].includes(name)) { chooseDraftCard(); return; }
       return;
     }
@@ -3109,7 +3115,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
     if(phase==='trainingIntro'&&inside(1370,20,205,58)) { enterMobileConsoleMode(); command('start'); return; }
     if(['gameover','puzzleComplete','puzzleFailed','onlineResult'].includes(phase)&&inside(1370,20,205,58)) { enterMobileConsoleMode(); command('start'); return; }
     if(phase==='onlineMatchWait'&&inside(520,535,560,80)) { enterMobileConsoleMode(); command('cancel'); return; }
-    if(phase!=='title'&&phase!=='falling'&&phase!=='replay'&&inside(24,20,150,58)) { enterMobileConsoleMode(); if(phase==='onlineMatchWait') { if(P2P_MATCH_ENABLED) p2pLeave(true); else closeOnlineLobby(); } else command('cancel'); return; }
+    if(phase!=='title'&&phase!=='falling'&&phase!=='replay'&&inside(24,20,150,58)) { enterMobileConsoleMode(); if(phase==='onlineMatchWait') { if(P2P_MATCH_ENABLED) p2pLeave(true); else closeOnlineLobby(); } else command(phase==='draft'?'pause':'cancel'); return; }
+    if(phase==='draft'&&inside(1325,20,250,58)) { enterMobileConsoleMode(); command('cancel'); return; }
     if(phase==='rogueHub') { const checkpoint=rogueCheckpoint(), entries=checkpoint?4:3, width=checkpoint?240:260, start=checkpoint?275:370, gap=checkpoint?270:300; for(let index=0;index<entries;index++) if(inside(start+index*gap,270,width,180)) { rogueHubIndex=index; enterMobileConsoleMode(); command('start'); return; } return; }
     if(phase==='rogueMap') { const routes=rogueRoutes(), width=routes.length===3?380:480, start=routes.length===3?210:routes.length===1?560:330, gap=routes.length===3?400:540; for(let index=0;index<routes.length;index++) if(inside(start+index*gap,600,width,130)) { rogueRouteIndex=index; enterMobileConsoleMode(); command('start'); return; } return; }
     if(phase==='rogueReward') { const start=rogueOffers.length===2?415:215; for(let index=0;index<rogueOffers.length;index++) if(inside(start+index*400,285,370,310)) { rogueRewardIndex=index; enterMobileConsoleMode(); command('start'); return; } return; }
@@ -3536,7 +3543,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
     if(!touchControlsVisible() || phase==='title' || phase==='falling' || phase==='replay') return;
     if(settingsOpen) { drawTouchAction(24,20,150,'戻る'); drawTouchAction(1420,20,155,`音 ${sfxVolume?Math.round(sfxVolume*100):'切'}`,'#173b35'); return; }
     if(phase==='paused') return;
-    const cancelLabel=phase==='draft'?'開始':'戻る'; drawTouchAction(24,20,150,cancelLabel);
+    drawTouchAction(24,20,150,'戻る');
+    if(phase==='draft') { drawTouchAction(1325,20,250,'この構成で開始','#273342'); return; }
     if(phase==='puzzleEditor') { drawTouchAction(1248,20,145,'保存','#173b35'); drawTouchAction(1410,20,165,'テスト','#4b3d20'); return; }
     if(phase==='creatorLibrary') { drawTouchAction(1030,20,160,'編集'); drawTouchAction(1200,20,160,'公開','#173b35'); drawTouchAction(1370,20,205,'リンク'); return; }
     if(phase==='creatorCourseSelect') { drawTouchAction(1200,20,170,'開始','#173b35'); drawTouchAction(1380,20,195,'リンク'); return; }
@@ -3717,7 +3725,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); panel(120,110,1360,650,'構築ラボ　カードドラフト');
     text(`${buildCards.length+1} 枚目`,800,185,28,'#d9f7ff','center','800');
     draftOffers.forEach((card,index)=>{ const x=215+index*400, selected=index===draftMenuIndex; ctx.fillStyle=selected?'#1d4a60':'#0c2230'; rr(x,300,370,280,20); if(selected) { ctx.strokeStyle='#8bdcff'; ctx.lineWidth=3; ctx.stroke(); } text(card.icon,x+40,366,54,'#ffe49b','left','900'); text(card.name,x+104,352,32,'#effbff','left','900'); text(PLAY_MODE==='build'?'実験カード':card.rarity==='starter'?'基本カード':'カード',x+104,392,24,'#8fd6eb','left','700'); const words=card.text.match(/.{1,15}/g)||[card.text]; words.slice(0,3).forEach((line,row)=>text(line,x+34,454+row*30,24,'#c9e4eb','left','700')); });
-    const current=draftOffers[draftMenuIndex], picked=buildCards.length?buildCards.map(card=>`${card.icon} ${card.name}`).join('　'):'---'; text(current?cardRouteHint(current):'',800,610,21,'#c9e4eb','center','700'); text(`選択　${picked}`,800,650,26,'#9cf7c1','center','800'); text(`十字キー　決定　X 入れ替え ${draftRerolls}　キャンセルで開始`,800,712,24,'#9ed5e7','center','700');
+    const current=draftOffers[draftMenuIndex], picked=buildCards.length?buildCards.map(card=>`${card.icon} ${card.name}`).join('　'):'---'; text(current?cardRouteHint(current):'',800,610,21,'#c9e4eb','center','700'); text(`選択　${picked}`,800,650,26,'#9cf7c1','center','800'); text(`十字キー　決定　X 入れ替え ${draftRerolls}　キャンセルで開始　ポーズで戻る`,800,712,24,'#9ed5e7','center','700');
   }
   function drawRogueHub() {
     ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); panel(220,100,1160,670,'ローグ・ラン'); const history=rogueHistory(), badges=rogueBadges(history), best=Math.max(0,...history.map(run=>run.score||0));
@@ -3961,10 +3969,10 @@ if(document.documentElement.dataset.phoneUi==='1') {
     ctx.fillStyle='rgba(255,255,255,.075)'; rr(x+3,y+3,w-6,Math.max(12,h*.18),15); ctx.strokeStyle=selected?'#c0f4ff':'#4e8499'; ctx.lineWidth=selected?4:2; ctx.stroke(); ctx.restore();
     phoneWrap(label,x+w/2,y+h/2-((String(label).length>8)?18:0),w-28,String(label).length>10?30:36,color,'center','900',2,38); phoneHit(x,y,w,h,run,repeat,action);
   }
-  function phoneHeader(title,{back=true,detail=''}={}) {
+  function phoneHeader(title,{back=true,detail='',onBack=null}={}) {
     phoneBackdrop(); ctx.save(); ctx.shadowColor='rgba(0,0,0,.38)'; ctx.shadowBlur=18; ctx.shadowOffsetY=7; ctx.fillStyle='#0b2132'; rr(18,18,864,104,24); ctx.restore();
     const rail=ctx.createLinearGradient(34,0,866,0); rail.addColorStop(0,'#5bdcff'); rail.addColorStop(.48,'#82f0d6'); rail.addColorStop(1,'rgba(130,240,214,0)'); ctx.fillStyle=rail; rr(38,22,808,5,3); ctx.strokeStyle='#37687e'; ctx.lineWidth=2; ctx.stroke();
-    if(back) phoneButton(30,32,158,78,'戻る',()=>command('cancel'),{tone:'#122c3b'});
+    if(back) phoneButton(30,32,158,78,'戻る',onBack||(()=>command('cancel')),{tone:'#122c3b'});
     phoneText(title,back?212:48,70,title.length>13?38:46,'#effbff','left','900'); if(detail) phoneText(detail,856,72,30,'#9ed5e7','right','800');
   }
   function phoneMenuCard(x,y,w,h,title,detail,selected,run,{accent='#8bdcff',icon=''}={}) {
@@ -4005,23 +4013,27 @@ if(document.documentElement.dataset.phoneUi==='1') {
     // Keep the phone controls visible even when a paired pad is detected. A
     // browser can expose a dormant pad, and hiding the only touch controls
     // would otherwise leave a phone session unusable.
-    const offset=Math.round(PHONE_EXTRA*.55), dockY=1138+offset, topY=dockY+20, actionY=dockY+134, bottomY=dockY+270;
-    ctx.fillStyle='#091d2b'; rr(12,dockY,876,422,32); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
-    phoneButton(28,topY,250,96,groups.size?'ボムを選ぶ':'ボムなし',()=>command('reserve'),{tone:groups.size?'#17384a':'#10202b'});
-    phoneButton(294,topY,400,96,releaseWindow?(releaseWindow.armed?'予約中':'爆発を予約'):'ボムを作ろう',()=>command('confirm'),{selected:!!releaseWindow?.armed,tone:releaseWindow?'#284d38':'#10202b'});
-    phoneButton(710,topY,162,96,'停止',()=>command('pause'),{tone:'#273342'});
-    phoneButton(28,actionY,196,122,'左',()=>command('left'),{repeat:true,action:'left'});
-    phoneButton(244,actionY,196,122,'右',()=>command('right'),{repeat:true,action:'right'});
-    phoneButton(28,bottomY,412,126,'下',()=>command('down'),{repeat:true,action:'down'});
-    phoneButton(460,actionY,196,122,'左回転',()=>command('rotateLeft'),{tone:'#1a4052'});
-    phoneButton(676,actionY,196,122,'右回転',()=>command('rotateRight'),{tone:'#1a4052'});
-    phoneButton(460,bottomY,412,126,'即落下',()=>command('drop'),{selected:true,tone:'#24566e'});
+    const dockY=1204, dockBottom=H-8, dockHeight=dockBottom-dockY, pad=12, gap=12;
+    const topY=dockY+pad, topH=Math.min(120,80+Math.round(PHONE_EXTRA*.11));
+    const mainTop=topY+topH+gap, mainBottom=dockBottom-pad, mainH=mainBottom-mainTop;
+    const moveH=Math.round((mainH-gap)*.46), downY=mainTop+moveH+gap, downH=mainBottom-downY;
+    const rotateH=Math.min(mainH-gap-110,Math.max(150,Math.round((mainH-gap)*.62))), dropY=mainTop+rotateH+gap, dropH=mainBottom-dropY;
+    ctx.fillStyle='#091d2b'; rr(12,dockY,876,dockHeight,32); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
+    phoneButton(28,topY,250,topH,groups.size?'ボムを選ぶ':'ボムなし',()=>command('reserve'),{tone:groups.size?'#17384a':'#10202b'});
+    phoneButton(294,topY,400,topH,releaseWindow?(releaseWindow.armed?'予約中':'爆発を予約'):'ボムを作ろう',()=>command('confirm'),{selected:!!releaseWindow?.armed,tone:releaseWindow?'#284d38':'#10202b'});
+    phoneButton(710,topY,162,topH,'停止',()=>command('pause'),{tone:'#273342'});
+    phoneButton(28,mainTop,196,moveH,'左',()=>command('left'),{repeat:true,action:'left'});
+    phoneButton(244,mainTop,196,moveH,'右',()=>command('right'),{repeat:true,action:'right'});
+    phoneButton(28,downY,412,downH,'下',()=>command('down'),{repeat:true,action:'down'});
+    phoneButton(460,mainTop,196,rotateH,'左回転',()=>command('rotateLeft'),{selected:true,tone:'#20536a'});
+    phoneButton(676,mainTop,196,rotateH,'右回転',()=>command('rotateRight'),{selected:true,tone:'#20536a'});
+    phoneButton(460,dropY,412,dropH,'即落下',()=>command('drop'),{tone:'#24566e'});
   }
   function phoneDrawGameplay() {
     phoneBackdrop(); ctx.save(); ctx.shadowColor='rgba(67,203,255,.2)'; ctx.shadowBlur=28; ctx.fillStyle='#071522'; rr(BX-16,BY-16,BW+32,BH+32,28); ctx.restore(); ctx.strokeStyle='#3b7890'; ctx.lineWidth=2; ctx.stroke();
     drawBoard(); phoneDrawGameSidebars(); phoneDrawGameControls();
-    if(cardEffectText&&performance.now()<cardEffectUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1080,520,64,18); phoneWrap(cardEffectText,450,1110,480,30,'#ffe18a','center','900',2,34); }
-    else if(toast&&performance.now()<toastUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1080,520,64,18); phoneWrap(toast,450,1110,480,30,'#e3faff','center','800',2,34); }
+    if(cardEffectText&&performance.now()<cardEffectUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1128,520,68,18); phoneWrap(cardEffectText,450,1148,480,30,'#ffe18a','center','900',2,34); }
+    else if(toast&&performance.now()<toastUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1128,520,68,18); phoneWrap(toast,450,1162,480,30,'#e3faff','center','800',1,34); }
   }
   function phoneDrawTitle() {
     phoneHeader('PUZZ-LE',{back:false}); phoneText('PUZZ',52,190,76,'#f1fbff','left','900'); phoneText('-LE',570,190,76,'#61d1f5','left','900');
@@ -4045,7 +4057,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     phoneDrawListScreen('デイリー',items,dailyMenuIndex,index=>{dailyMenuIndex=index;command('start');},{count:8,detail:`連続 ${dailyLeagueSummary().streak}日`});
   }
   function phoneDrawDraft() {
-    const items=draftOffers.map(card=>({title:`${card.icon} ${card.name}`,detail:card.text,accent:'#ffe18a'})); phoneHeader('カードドラフト',{back:false,detail:`${buildCards.length+1}枚目`});
+    const items=draftOffers.map(card=>({title:`${card.icon} ${card.name}`,detail:card.text,accent:'#ffe18a'})); phoneHeader('カードドラフト',{detail:`${buildCards.length+1}枚目`,onBack:()=>command('pause')});
     const cardGap=330+Math.min(120,Math.floor(PHONE_EXTRA/3)); items.forEach((item,index)=>phoneMenuCard(46,190+index*cardGap,808,290,item.title,item.detail,draftMenuIndex===index,()=>{draftMenuIndex=index;command('start');},{accent:item.accent}));
     phoneButton(180,H-360,540,90,`入れ替え　残り${draftRerolls}`,()=>command('reserve'),{tone:'#173b35'}); phoneButton(170,H-210,560,90,'この構成で開始',()=>command('cancel'),{tone:'#273342'});
   }
