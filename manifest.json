@@ -1,0 +1,23 @@
+{
+  "id": "./",
+  "name": "PUZZ-LE",
+  "short_name": "PUZZ-LE",
+  "description": "ボムを育て、つないで、盤面を一気に片づける落ちものパズル。",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#071018",
+  "theme_color": "#071018",
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "ひとりで遊ぶ", "short_name": "ひとりで", "url": "./index.html?mode=ranked", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "フレンド対戦", "short_name": "対戦", "url": "./index.html", "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
