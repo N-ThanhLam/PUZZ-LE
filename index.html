@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-6">
+<meta name="puzzle-build" content="pwa-20260715-7">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -32,7 +32,7 @@
   let portraitNavigationPending=false;
   const lockPortrait=()=>{
     if(!phone) return Promise.resolve();
-    try { return Promise.resolve(window.screen?.orientation?.lock?.('portrait-primary')).catch(()=>{}); }
+    try { return Promise.resolve(window.screen?.orientation?.lock?.('portrait')).catch(()=>{}); }
     catch(_) { return Promise.resolve(); }
   };
   const navigationTarget=value=>{
