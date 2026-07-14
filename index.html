@@ -16,6 +16,48 @@
 <link rel="apple-touch-icon" sizes="192x192" href="./icons/icon-192.png">
 <script src="./vendor/peerjs.min.js"></script>
 <script>document.documentElement.dataset.peerReady=typeof Peer==='function'?'1':'0';</script>
+<script>
+// Preserve the largest viewport across same-tab mode navigations. Mobile browser
+// bars often reappear during a URL change; treating that temporary size as the
+// new baseline makes every destination screen visibly shrink.
+(function(){
+  const state={kind:'',width:0,height:0,key:''};
+  const namePrefix='puzzle-le-viewport:';
+  const storageKey=kind=>{
+    const display=window.screen||{},sw=Math.round(display.width||0),sh=Math.round(display.height||0),scale=Math.round((window.devicePixelRatio||1)*100);
+    return `puzzle-le-stable-viewport-v2:${kind}:${sw}x${sh}@${scale}`;
+  };
+  const read=key=>{
+    try {
+      const saved=JSON.parse(window.sessionStorage?.getItem(key)||'null');
+      if(Number.isFinite(saved?.width)&&Number.isFinite(saved?.height)&&saved.width>=240&&saved.height>=240) return saved;
+    } catch(_) {}
+    try {
+      const saved=window.name.startsWith(namePrefix)?JSON.parse(window.name.slice(namePrefix.length)):null;
+      return saved?.key===key&&Number.isFinite(saved.width)&&Number.isFinite(saved.height)&&saved.width>=240&&saved.height>=240?saved:null;
+    } catch(_) { return null; }
+  };
+  const write=()=>{
+    const saved={key:state.key,width:state.width,height:state.height};
+    try { window.sessionStorage?.setItem(state.key,JSON.stringify(saved)); } catch(_) {}
+    try { if(!window.name||window.name.startsWith(namePrefix)) window.name=namePrefix+JSON.stringify(saved); } catch(_) {}
+  };
+  function apply(){
+    const viewport=window.visualViewport,width=Math.round(viewport?.width||window.innerWidth),height=Math.round(viewport?.height||window.innerHeight),kind=width>=height?'landscape':'portrait',key=storageKey(kind);
+    if(kind!==state.kind||key!==state.key) {
+      const saved=read(key); state.kind=kind; state.key=key; state.width=Math.max(width,saved?.width||0); state.height=Math.max(height,saved?.height||0);
+    } else {
+      state.width=Math.max(state.width,width); state.height=Math.max(state.height,height);
+    }
+    write();
+    document.documentElement.style.setProperty('--app-w',`${state.width}px`);
+    document.documentElement.style.setProperty('--app-h',`${state.height}px`);
+    return {...state};
+  }
+  window.PUZZLE_APP_VIEWPORT=Object.freeze({apply,state});
+  apply();
+})();
+</script>
 <style>
   :root { color-scheme: dark; --app-w:100vw; --app-h:100vh; }
   * { box-sizing: border-box; }
@@ -288,17 +330,9 @@
   function readCustomPuzzles() { try { const list=JSON.parse(localStorage.getItem(CUSTOM_PUZZLE_STORAGE)||'[]'); return Array.isArray(list)?list.filter(validCustomPuzzle):[]; } catch(_) { return []; } }
   Object.assign(PUZZLES,Object.fromEntries(readCustomPuzzles().map(puzzle=>[puzzle.id,puzzle])));
   const QUERY = new URLSearchParams(location.search);
-  // Browser and OS bars may temporarily reduce the visual viewport. Keep the
-  // largest size seen for the current orientation so installed play never pulses
-  // smaller when the clock or home area appears.
-  let stableViewportKind='', stableViewportWidth=0, stableViewportHeight=0;
-  function stabilizeAppViewport() {
-    const viewport=window.visualViewport, width=Math.round(viewport?.width||innerWidth), height=Math.round(viewport?.height||innerHeight), kind=width>=height?'landscape':'portrait';
-    if(kind!==stableViewportKind) { stableViewportKind=kind; stableViewportWidth=width; stableViewportHeight=height; }
-    else { stableViewportWidth=Math.max(stableViewportWidth,width); stableViewportHeight=Math.max(stableViewportHeight,height); }
-    document.documentElement.style.setProperty('--app-w',`${stableViewportWidth}px`);
-    document.documentElement.style.setProperty('--app-h',`${stableViewportHeight}px`);
-  }
+  // The head bootstrap applies the previous screen's full size before first
+  // paint; resize events can only grow that baseline, never shrink it.
+  function stabilizeAppViewport() { window.PUZZLE_APP_VIEWPORT?.apply(); }
   stabilizeAppViewport();
   addEventListener('resize',stabilizeAppViewport);
   window.visualViewport?.addEventListener('resize',stabilizeAppViewport);
