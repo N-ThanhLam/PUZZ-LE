@@ -17,11 +17,13 @@
 <script src="./vendor/peerjs.min.js"></script>
 <script>document.documentElement.dataset.peerReady=typeof Peer==='function'?'1':'0';</script>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --app-w:100vw; --app-h:100vh; }
   * { box-sizing: border-box; }
   html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#071018; }
-  body { display:grid; place-items:center; font-family:"Yu Gothic UI","Meiryo",sans-serif; }
-  canvas { width:min(100vw,177.777vh); height:min(56.25vw,100vh); display:block; touch-action:none; outline:none; }
+  /* The app stores the largest measured viewport in these variables. When a
+     status/home bar appears it overlays the playfield instead of shrinking it. */
+  body { display:grid; place-items:center; width:var(--app-w); height:var(--app-h); font-family:"Yu Gothic UI","Meiryo",sans-serif; }
+  canvas { width:min(var(--app-w),calc(var(--app-h) * 1.777777)); height:min(calc(var(--app-w) * .5625),var(--app-h)); display:block; touch-action:none; outline:none; }
   canvas:focus-visible { outline:none; }
   #rotate-notice { display:none; position:fixed; inset:0; z-index:5; place-items:center; text-align:center; background:#071018; color:#e8f9ff; font-size:30px; font-weight:800; line-height:1.8; }
   #creator-meta { position:fixed; inset:0; z-index:10; display:grid; place-items:center; padding:24px; background:rgba(2,10,16,.82); }
@@ -51,11 +53,11 @@
      while it is held sideways. Rotate the complete app shell, not only the canvas,
      so the game, dialogs, and touch controls remain one coherent landscape surface. */
   @media (orientation: portrait) and (pointer: coarse) {
-    body { position:fixed; left:50%; top:50%; width:100vh; height:100vw; width:100dvh; height:100dvw; transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
+    body { position:fixed; left:50%; top:50%; width:var(--app-h); height:var(--app-w); transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
     canvas { width:100%; height:100%; }
     #rotate-notice { display:none; }
   }
-  html[data-portrait-shell-test] body { position:fixed; left:50%; top:50%; width:100vh; height:100vw; width:100dvh; height:100dvw; transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
+  html[data-portrait-shell-test] body { position:fixed; left:50%; top:50%; width:var(--app-h); height:var(--app-w); transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
   html[data-portrait-shell-test] canvas { width:100%; height:100%; }
   html[data-portrait-shell-test] #rotate-notice { display:none; }
   @media (prefers-reduced-motion: reduce) { canvas { image-rendering:pixelated; } }
@@ -286,6 +288,20 @@
   function readCustomPuzzles() { try { const list=JSON.parse(localStorage.getItem(CUSTOM_PUZZLE_STORAGE)||'[]'); return Array.isArray(list)?list.filter(validCustomPuzzle):[]; } catch(_) { return []; } }
   Object.assign(PUZZLES,Object.fromEntries(readCustomPuzzles().map(puzzle=>[puzzle.id,puzzle])));
   const QUERY = new URLSearchParams(location.search);
+  // Browser and OS bars may temporarily reduce the visual viewport. Keep the
+  // largest size seen for the current orientation so installed play never pulses
+  // smaller when the clock or home area appears.
+  let stableViewportKind='', stableViewportWidth=0, stableViewportHeight=0;
+  function stabilizeAppViewport() {
+    const viewport=window.visualViewport, width=Math.round(viewport?.width||innerWidth), height=Math.round(viewport?.height||innerHeight), kind=width>=height?'landscape':'portrait';
+    if(kind!==stableViewportKind) { stableViewportKind=kind; stableViewportWidth=width; stableViewportHeight=height; }
+    else { stableViewportWidth=Math.max(stableViewportWidth,width); stableViewportHeight=Math.max(stableViewportHeight,height); }
+    document.documentElement.style.setProperty('--app-w',`${stableViewportWidth}px`);
+    document.documentElement.style.setProperty('--app-h',`${stableViewportHeight}px`);
+  }
+  stabilizeAppViewport();
+  addEventListener('resize',stabilizeAppViewport);
+  window.visualViewport?.addEventListener('resize',stabilizeAppViewport);
   function importedCustomPuzzle() { try { const raw=QUERY.get('custom'); if(!raw || raw.length>30000) return null; const puzzle=JSON.parse(raw); return validCustomPuzzle(puzzle)?puzzle:null; } catch(_) { return null; } }
   const IMPORTED_CUSTOM_PUZZLE = importedCustomPuzzle();
   if(IMPORTED_CUSTOM_PUZZLE) PUZZLES[IMPORTED_CUSTOM_PUZZLE.id]=IMPORTED_CUSTOM_PUZZLE;
@@ -492,10 +508,11 @@
     {action:'left', label:'左'}, {action:'right', label:'右'}, {action:'rotateLeft', label:'左回'}, {action:'down', label:'下'},
     {action:'drop', label:'落下'}, {action:'rotateRight', label:'右回'}, {action:'pause', label:'停止'}, {action:'confirm', label:'起爆'}
   ];
-  const TOUCH_LAYOUT = [
-    {action:'left',label:'左',x:72,y:802,width:100,height:76,repeat:true}, {action:'down',label:'下',x:180,y:802,width:100,height:76,repeat:true}, {action:'right',label:'右',x:288,y:802,width:100,height:76,repeat:true},
-    {action:'reserve',label:'えらぶ',x:990,y:802,width:96,height:76}, {action:'confirm',label:'予約',x:1094,y:802,width:96,height:76}, {action:'rotateLeft',label:'左回',x:1198,y:802,width:96,height:76}, {action:'drop',label:'落下',x:1302,y:802,width:96,height:76}, {action:'rotateRight',label:'右回',x:1406,y:802,width:96,height:76}
-  ];
+  const TOUCH_LAYOUT = Object.freeze({
+    move:{left:64,width:142,height:92,gap:34},
+    action:{y:782,height:94,rotateWidth:166,dropWidth:246,gap:22},
+    bomb:{width:160,height:74,gap:22}
+  });
   let board, groups, nextQueue, bag, active, phase, selectedGroup, score, lastChain, turn;
   let releaseWindow = null, lastReleaseTurn = -Infinity;
   let random = mulberry32(hashSeed(RUN_SEED));
@@ -2754,7 +2771,24 @@
     document.documentElement.requestFullscreen?.().then(()=>screen.orientation?.lock?.('landscape').catch(()=>{})).catch(()=>{});
   }
   function touchButtonRects() {
-    return TOUCH_LAYOUT;
+    const moveTop=PLAY_MODE==='build'?680:NEXT_COUNT===8?530:480;
+    const {left,width,height,gap}=TOUCH_LAYOUT.move, downX=left+(width+gap)/2, downY=moveTop+height+16;
+    const move=[
+      {action:'left',label:'左',x:left,y:moveTop,width,height,repeat:true,zone:'move'},
+      {action:'right',label:'右',x:left+width+gap,y:moveTop,width,height,repeat:true,zone:'move'},
+      {action:'down',label:'下',x:downX,y:downY,width,height,repeat:true,zone:'move'}
+    ];
+    const action=TOUCH_LAYOUT.action, actionX=884;
+    const core=[
+      {action:'rotateLeft',label:'左回',x:actionX,y:action.y,width:action.rotateWidth,height:action.height,zone:'core'},
+      {action:'drop',label:'落下',x:actionX+action.rotateWidth+action.gap,y:action.y,width:action.dropWidth,height:action.height,zone:'core',emphasis:true},
+      {action:'rotateRight',label:'右回',x:actionX+action.rotateWidth+action.gap+action.dropWidth+action.gap,y:action.y,width:action.rotateWidth,height:action.height,zone:'core'}
+    ];
+    if(!groups.size&&!releaseWindow) return [...move,...core];
+    const bomb=TOUCH_LAYOUT.bomb, buildTouch=PLAY_MODE==='build', bombWidth=buildTouch?280:bomb.width, bombX=buildTouch?900:64, bombY=buildTouch?696:NEXT_COUNT===8?748:700;
+    const bombButtons=[{action:'reserve',label:'えらぶ',x:bombX,y:bombY,width:bombWidth,height:bomb.height,zone:'bomb'}];
+    if(releaseWindow) bombButtons.push({action:'confirm',label:releaseWindow.armed?'予約中':'予約',x:bombX+bombWidth+bomb.gap,y:bombY,width:bombWidth,height:bomb.height,zone:'bomb',emphasis:true});
+    return [...move,...bombButtons,...core];
   }
   canvas.addEventListener('pointerdown', event => {
     // Canvas menus are rendered as buttons on every device. Do not leave desktop mouse users with keyboard-only menus.
@@ -3170,14 +3204,16 @@
     text(help,800,844,25,'#c9e4eb','center');
   }
   function drawTouchControls() {
-    panel(40,790,1520,98);
-    for(const button of touchButtonRects()) {
-      const disabled=button.action==='confirm'&&!releaseWindow;
+    const buttons=touchButtonRects(), move=buttons.filter(button=>button.zone==='move'), bomb=buttons.filter(button=>button.zone==='bomb'), core=buttons.filter(button=>button.zone==='core');
+    const box=items=>({x:Math.min(...items.map(item=>item.x))-12,y:Math.min(...items.map(item=>item.y))-12,w:Math.max(...items.map(item=>item.x+item.width))-Math.min(...items.map(item=>item.x))+24,h:Math.max(...items.map(item=>item.y+item.height))-Math.min(...items.map(item=>item.y))+24});
+    [move,bomb,core].filter(items=>items.length).forEach(items=>{ const area=box(items); panel(area.x,area.y,area.w,area.h); });
+    for(const button of buttons) {
       const armed=button.action==='confirm'&&releaseWindow?.armed;
-      ctx.fillStyle=disabled?'#162430':armed?'#226246':'#1b4054'; rr(button.x,button.y,button.width,button.height,13);
-      ctx.strokeStyle=disabled?'#29404e':armed?'#a8ffd0':'#76b9d2'; ctx.lineWidth=2; ctx.stroke();
-      const label=button.action==='confirm'&&releaseWindow ? (releaseWindow.armed?'予約中':'予約') : button.label;
-      text(label,button.x+button.width/2,button.y+button.height/2,button.action==='drop'||button.action==='confirm'?22:36,disabled?'#4e6773':'#effbff','center','800');
+      ctx.save(); if(button.emphasis&&!armed) { ctx.shadowColor='#6bd8ff'; ctx.shadowBlur=10; }
+      ctx.fillStyle=armed?'#226246':button.emphasis?'#24566e':'#1b4054'; rr(button.x,button.y,button.width,button.height,15); ctx.restore();
+      ctx.strokeStyle=armed?'#a8ffd0':button.emphasis?'#b6efff':'#76b9d2'; ctx.lineWidth=2; ctx.stroke();
+      const size=button.action==='drop'?34:button.label.length>=3?28:36;
+      text(button.label,button.x+button.width/2,button.y+button.height/2,size,'#effbff','center','900');
     }
   }
   function drawTouchPause() {
