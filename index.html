@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-5">
+<meta name="puzzle-build" content="pwa-20260715-6">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -140,15 +140,18 @@
 </style>
 </head>
 <body>
-<canvas id="game" width="1600" height="900" tabindex="0" aria-label="PUZZ-LE。読み込み中"></canvas>
+<canvas id="game" width="900" height="1600" tabindex="0" aria-label="PUZZ-LE。読み込み中" aria-orientation="vertical"></canvas>
 <script>
-// Set the phone bitmap before the first paint. Route changes create a fresh
-// document, so leaving the HTML default at 1600x900 caused one landscape frame.
+// The markup itself is portrait-first, so a phone never owns a landscape
+// bitmap even for the parser's earliest frame. Only confirmed desktop mode
+// opts into the 1600x900 surface.
+const bootCanvas=document.getElementById('game');
 if(document.documentElement.dataset.phoneUi==='1') {
-  const phoneCanvas=document.getElementById('game');
-  phoneCanvas.width=900;
-  phoneCanvas.height=Math.max(1600,Math.min(2000,Number(document.documentElement.dataset.phoneCanvasH)||1600));
-  phoneCanvas.setAttribute('aria-orientation','vertical');
+  bootCanvas.height=Math.max(1600,Math.min(2000,Number(document.documentElement.dataset.phoneCanvasH)||1600));
+} else {
+  bootCanvas.width=1600;
+  bootCanvas.height=900;
+  bootCanvas.removeAttribute('aria-orientation');
 }
 </script>
 <div id="creator-meta" hidden>
