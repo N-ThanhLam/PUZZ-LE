@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260714-3">
+<meta name="puzzle-build" content="pwa-20260715-1">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,6 +21,14 @@
 // bars often reappear during a URL change; treating that temporary size as the
 // new baseline makes every destination screen visibly shrink.
 (function(){
+  const query=new URLSearchParams(location.search), display=window.screen||{}, shortSide=Math.min(Number(display.width)||innerWidth,Number(display.height)||innerHeight);
+  const forcedPhone=query.get('phone')==='1', phone=forcedPhone||(query.get('desktop')!=='1'&&matchMedia('(pointer: coarse)').matches&&shortSide<=720);
+  document.documentElement.dataset.phoneUi=phone?'1':'0';
+  if(phone) {
+    const phoneShort=forcedPhone?Math.min(innerWidth,innerHeight):shortSide, longSide=forcedPhone?Math.max(innerWidth,innerHeight):Math.max(Number(display.width)||innerWidth,Number(display.height)||innerHeight), phoneCanvasH=Math.max(1600,Math.min(2000,Math.round(900*longSide/Math.max(1,phoneShort))));
+    document.documentElement.dataset.phoneCanvasH=String(phoneCanvasH);
+    document.documentElement.style.setProperty('--phone-aspect',String(900/phoneCanvasH));
+  }
   const state={kind:'',width:0,height:0,key:''};
   const namePrefix='puzzle-le-viewport:';
   const storageKey=kind=>{
@@ -59,7 +67,7 @@
 })();
 </script>
 <style>
-  :root { color-scheme: dark; --app-w:100vw; --app-h:100vh; }
+  :root { color-scheme: dark; --app-w:100vw; --app-h:100vh; --phone-aspect:.5625; }
   * { box-sizing: border-box; }
   html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#071018; }
   /* The app stores the largest measured viewport in these variables. When a
@@ -91,14 +99,14 @@
   #p2p-code button { min-height:54px; padding:8px 22px; border:2px solid #76b9d2; border-radius:12px; background:#1b4054; color:#effbff; font:800 24px "Yu Gothic UI","Meiryo",sans-serif; }
   #p2p-code button[type=submit] { background:#226246; border-color:#a8ffd0; }
   #p2p-authority { position:fixed; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; left:-20px; top:-20px; }
-  /* A phone with its OS rotation locked to portrait still reports a portrait viewport
-     while it is held sideways. Rotate the complete app shell, not only the canvas,
-     so the game, dialogs, and touch controls remain one coherent landscape surface. */
-  @media (orientation: portrait) and (pointer: coarse) {
-    body { position:fixed; left:50%; top:50%; width:var(--app-h); height:var(--app-w); transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
-    canvas { width:100%; height:100%; }
-    #rotate-notice { display:none; }
-  }
+  /* Phone UI is a native portrait renderer.  It is width-limited on tall phones,
+     so browser chrome changing the available height cannot resize the controls. */
+  html[data-phone-ui="1"], html[data-phone-ui="1"] body { width:100%; min-width:100%; height:100%; min-height:100%; }
+  html[data-phone-ui="1"] body { position:fixed; inset:0; display:grid; place-items:center; padding:max(env(safe-area-inset-top),4px) max(env(safe-area-inset-right),4px) max(env(safe-area-inset-bottom),4px) max(env(safe-area-inset-left),4px); transform:none; overflow:hidden; }
+  html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); height:auto; max-height:calc(100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); aspect-ratio:auto; }
+  @media (display-mode: fullscreen), (display-mode: standalone) { html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); } }
+  html[data-phone-ui="1"] #creator-meta, html[data-phone-ui="1"] #p2p-code { padding:max(env(safe-area-inset-top),12px) max(env(safe-area-inset-right),12px) max(env(safe-area-inset-bottom),12px) max(env(safe-area-inset-left),12px); }
+  html[data-phone-ui="1"] #creator-meta form, html[data-phone-ui="1"] #p2p-code form { width:min(92vw,620px); max-height:92dvh; overflow:auto; padding:22px; }
   html[data-portrait-shell-test] body { position:fixed; left:50%; top:50%; width:var(--app-h); height:var(--app-w); transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
   html[data-portrait-shell-test] canvas { width:100%; height:100%; }
   html[data-portrait-shell-test] #rotate-notice { display:none; }
@@ -518,11 +526,13 @@
   const p2pCodeInput = document.getElementById('p2p-code-input');
   const p2pCodeCancel = document.getElementById('p2p-code-cancel');
   const p2pAuthorityRoot = document.getElementById('p2p-authority');
+  const PHONE_UI = !P2P_HEADLESS && document.documentElement.dataset.phoneUi==='1';
+  if(PHONE_UI) { canvas.width=900; canvas.height=Math.max(1600,Math.min(2000,Number(document.documentElement.dataset.phoneCanvasH)||1600)); canvas.setAttribute('aria-orientation','vertical'); }
   const ctx = canvas.getContext('2d');
   // Gameplay uses three stable columns: next pieces, the board, and decisions.
   // The board deliberately receives the largest share of the 1600×900 surface.
-  const W = canvas.width, H = canvas.height, CELL = 34;
-  const BX = 460, BY = 90, BW = RULES.board.width * CELL, BH = RULES.board.height * CELL;
+  const W = canvas.width, H = canvas.height, CELL = PHONE_UI?52:34, PHONE_EXTRA = PHONE_UI?Math.max(0,H-1600):0;
+  const BX = PHONE_UI?190:460, BY = PHONE_UI?60:90, BW = RULES.board.width * CELL, BH = RULES.board.height * CELL;
   const GAME_UI = Object.freeze({leftX:60,leftW:340,rightX:860,rightW:680,top:90,footerY:815});
   // `touch=1` is a local viewport-test override; production devices rely on capability detection.
   const touchCapable = QUERY.get('touch') === '1' || navigator.maxTouchPoints > 0 || matchMedia('(pointer: coarse)').matches;
@@ -575,7 +585,7 @@
     intentional:false, lobbyAction:'join', quickSlot:-1, rematch:new Set(), matchEnded:false
   };
   let lastFrame = performance.now(), time = 0, p2pClockActive = false, p2pClockMs = 0;
-  let inputLock = {}, padPrevious = [], rawPadPrevious = [], keyBindings = readKeyBindings(), gamepadBindings = readGamepadBindings(), settingsOpen = false, settingsIndex = 0, remapAction = null, remapPadAction = null, remapPadArmed = false, gamepadEmergencyAt = 0, gamepadEmergencyDone = false, touchRepeatAction = null, touchRepeatAt = 0, onlineDesync = false;
+  let inputLock = {}, padPrevious = [], rawPadPrevious = [], keyBindings = readKeyBindings(), gamepadBindings = readGamepadBindings(), settingsOpen = false, settingsIndex = 0, remapAction = null, remapPadAction = null, remapPadArmed = false, gamepadEmergencyAt = 0, gamepadEmergencyDone = false, touchRepeatAction = null, touchRepeatAt = 0, onlineDesync = false, phoneHitRegions = [];
 
   const cell = (color, state='normal', groupId=null) => ({ color, state, groupId });
   const terrainCell = (terrain, hp=terrain==='stone'?RULES.terrain.stoneHits:1) => ({terrain,hp,state:'terrain',groupId:null});
@@ -703,7 +713,7 @@
     outgoingAttacks=[]; pendingPressure=0;
     try { incomingAttacks=PVP_ENABLED&&QUERY.has('attack')?JSON.parse(QUERY.get('attack')):[]; } catch(_) { incomingAttacks=[]; }
     bestScoreBeforeRun=readBestScore(); resultBestScore=bestScoreBeforeRun; resultIsNewBest=false;
-    gameOverReason = ''; toast = 'PRESS ENTER / A'; toastUntil = Infinity;
+    gameOverReason = ''; toast = '決定で開始'; toastUntil = Infinity;
     if(TERRAIN_ENABLED) seedTerrainBoard();
     fillQueue();
     if(DEV_SCENARIO==='bridge') loadPuzzle(PUZZLES.bridge);
@@ -2204,7 +2214,7 @@
   function offerRogueReward() { rogueOffers=rogueRewardCandidates(Math.max(0,rogueNode-1),rogueEncounterKind); rogueRewardIndex=0; phase=rogueOffers.length?'rogueReward':'rogueMap'; saveRogueCheckpoint(); }
   function chooseRogueReward() { const card=rogueOffers[rogueRewardIndex]; if(card) buildCards.push({...card,upgraded:rogueEncounterKind==='elite'}); rogueOffers=[]; phase='rogueMap'; saveRogueCheckpoint(); }
   function completeRogueEncounter() { if(!ROGUE_ENABLED || phase!=='falling' || rogueEncounterScore()<rogueGoal() || !rogueContractComplete()) return false; recordRogueEncounter(true); rogueNode++; active=null; if(rogueNode>=4) { endGame('ローグ・ラン制覇！',true); return true; } offerRogueReward(); return true; }
-  function endGame(reason, forceFinal=false) { if(!forceFinal&&ROGUE_ENABLED&&phase==='falling') { recordRogueEncounter(false,reason); rogueHearts=Math.max(0,rogueHearts-1); if(rogueHearts>0) { active=null; phase='rogueMap'; saveRogueCheckpoint(); toast=`ボムを失った　のこり ${rogueHearts} 回`; toastUntil=Infinity; soundEvent('fail'); return; } } phase='gameover'; active=null; gameOverReason=reason; const newCards=ROGUE_ENABLED?saveRogueHistory(reason):[]; if(ROGUE_ENABLED) clearRogueCheckpoint(); rankedJourneyResult=advanceRankedJourney(); saveResultScore(); if(telemetry&&!telemetry.endedAt) { telemetry.endedAt=performance.now(); recordTelemetry('run-end',{reason,rankedJourney:rankedJourneyResult?.completed||0}); } recordReplayFrame(); saveReplayHistory(); const journeyToast=rankedJourneyResult?.advanced?`盤面の道　${rankedJourneyResult.unlocked.name} 達成！　ENTER / A で続ける`:''; toast=newCards.length?`新カード解放！ ${newCards.map(card=>card.name).join('・')}　ENTER / A で続ける`:journeyToast||'ENTER / A で再挑戦'; toastUntil=Infinity; soundEvent(forceFinal?'clear':'fail',{stars:forceFinal?3:0}); }
+  function endGame(reason, forceFinal=false) { if(!forceFinal&&ROGUE_ENABLED&&phase==='falling') { recordRogueEncounter(false,reason); rogueHearts=Math.max(0,rogueHearts-1); if(rogueHearts>0) { active=null; phase='rogueMap'; saveRogueCheckpoint(); toast=`ボムを失った　のこり ${rogueHearts} 回`; toastUntil=Infinity; soundEvent('fail'); return; } } phase='gameover'; active=null; gameOverReason=reason; const newCards=ROGUE_ENABLED?saveRogueHistory(reason):[]; if(ROGUE_ENABLED) clearRogueCheckpoint(); rankedJourneyResult=advanceRankedJourney(); saveResultScore(); if(telemetry&&!telemetry.endedAt) { telemetry.endedAt=performance.now(); recordTelemetry('run-end',{reason,rankedJourney:rankedJourneyResult?.completed||0}); } recordReplayFrame(); saveReplayHistory(); const journeyToast=rankedJourneyResult?.advanced?`盤面の道　${rankedJourneyResult.unlocked.name} 達成！　決定で続ける`:''; toast=newCards.length?`新カード解放！ ${newCards.map(card=>card.name).join('・')}　決定で続ける`:journeyToast||'決定で再挑戦'; toastUntil=Infinity; soundEvent(forceFinal?'clear':'fail',{stars:forceFinal?3:0}); }
   function say(text, duration=1400) { toast=text; toastUntil=performance.now()+duration; }
   function onlineGuestId() { let id=''; const token=()=>globalThis.crypto?.randomUUID?.().replace(/-/g,'').slice(0,16)||Math.random().toString(36).slice(2,18); try { id=localStorage.getItem('puzzle-le-online-guest-v1')||''; if(!/^guest_[a-zA-Z0-9_-]{6,64}$/.test(id)) { id=`guest_${token()}`; localStorage.setItem('puzzle-le-online-guest-v1',id); } } catch(_) { id=`guest_${token()}`; } return id; }
   function p2pLocalPlayerId() { let id=''; const make=()=>`p2p_${globalThis.crypto?.randomUUID?.().replace(/-/g,'').slice(0,16)||Math.random().toString(36).slice(2,18)}`; try { id=sessionStorage.getItem('puzzle-le-p2p-player-v1')||''; if(!/^p2p_[a-zA-Z0-9_-]{6,64}$/.test(id)) { id=make(); sessionStorage.setItem('puzzle-le-p2p-player-v1',id); } } catch(_) { id=make(); } return id; }
@@ -2309,7 +2319,7 @@
     const common={type:'match_start',protocol:P2P_PROTOCOL_VERSION,roomCode:P2P.roomCode,seed,hostId:P2P.localId,guestId:P2P.remoteId,token:P2P.remoteToken}, generation=P2P.generation; p2pPersistHost();
     p2pSafeSend({...common,role:'guest',seat:1}); setTimeout(()=>{ if(generation===P2P.generation) p2pNavigateMatch({...common,role:'host',seat:0}); },260);
   }
-  function p2pNavigateMatch(info) { const params=new URLSearchParams({mode:'pvp',seed:info.seed,p2p:'1',p2pRole:info.role,p2pRoom:info.roomCode,p2pSeed:info.seed,p2pToken:info.token||''}); location.href=`${location.pathname}?${params}`; }
+  function p2pNavigateMatch(info) { const params=new URLSearchParams({mode:'pvp',seed:info.seed,p2p:'1',p2pRole:info.role,p2pRoom:info.roomCode,p2pSeed:info.seed,p2pToken:info.token||''}); if(QUERY.get('phone')==='1') params.set('phone','1'); if(QUERY.get('desktop')==='1') params.set('desktop','1'); location.href=`${location.pathname}?${params}`; }
   function p2pCopyInvite() { if(!P2P.roomCode) return; const message=`PUZZ-LE フレンド対戦\n合言葉: ${P2P.roomCode}\n${location.href.split('?')[0]}`; navigator.clipboard?.writeText(message).then(()=>say('合言葉をコピーしました',1500)).catch(()=>say(`合言葉 ${P2P.roomCode}`,2200)); }
   function p2pResetVisibleForSync() {
     resetGame(); phase='falling'; toast=''; toastUntil=0; startP2PBoardClock();
@@ -2980,7 +2990,7 @@
   function gamepadPresent() { return GAMEPAD_TEST || [...(navigator.getGamepads?.() || [])].some(Boolean); }
   function touchControlsVisible() { return touchCapable && !gamepadPresent(); }
   function portraitLandscapeShell() {
-    return document.documentElement.dataset.portraitShellTest==='1' || (touchCapable && matchMedia('(orientation: portrait) and (pointer: coarse)').matches);
+    return !PHONE_UI && document.documentElement.dataset.portraitShellTest==='1';
   }
   let fullscreenRequestPending=false;
   function fullscreenElement() { return document.fullscreenElement||document.webkitFullscreenElement||null; }
@@ -3039,6 +3049,12 @@
     // Canvas menus are rendered as buttons on every device. Do not leave desktop mouse users with keyboard-only menus.
     canvas.focus({preventScroll:true});
     event.preventDefault();
+    if(PHONE_UI) {
+      const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height;
+      const hit=[...phoneHitRegions].reverse().find(region=>x>=region.x&&x<=region.x+region.w&&y>=region.y&&y<=region.y+region.h);
+      if(hit) { enterMobileConsoleMode(); hit.run(x,y); if(hit.repeat&&hit.action) { touchRepeatAction=hit.action; touchRepeatAt=performance.now()+170; canvas.setPointerCapture?.(event.pointerId); } }
+      return;
+    }
     // A portrait-locked phone can be physically held sideways. The visual shell is
     // rotated 90 degrees, so feed the existing landscape hit tests virtual coords.
     if(portraitLandscapeShell()) {
@@ -3424,7 +3440,7 @@
         const forecast=releaseForecast(selected), plan=explosionPlan(selected), lineRows=forecast.lineRows, cleanupPreview=forecast.cleanupCells, lineCap=plan.depth>=3?3:plan.depth===2?2:0, risk=pressureInfo(selected), nextPressure=selected.pressure+risk.gain;
         const attributeColor=board[selected.cells[0][1]][selected.cells[0][0]].color;
         if(ATTRIBUTES_ENABLED && attributeSet.includes(attributeColor)) {
-          const preview=attributeColor==='red'?'RED: HORIZONTAL ×2':attributeColor==='blue'?'BLUE: VERTICAL ×2':attributeColor==='yellow'?'YELLOW: RESET ALL PRESSURE':`GREEN: ALL PLANTS +${RULES.attributes.green.scorePerPlant} EACH`;
+          const preview=attributeColor==='red'?'赤：横方向 ×2':attributeColor==='blue'?'青：縦方向 ×2':attributeColor==='yellow'?'黄：すべての圧を戻す':`緑：植物すべて ＋${RULES.attributes.green.scorePerPlant}`;
           text(`属性予告　${preview}`,x+w-30,y+82,24,'#b9eaff','right','800');
         }
         const waitColor=nextPressure>=RULES.pressure.threshold?'#ff7986':nextPressure>=RULES.pressure.threshold*.7?'#ffcf67':'#86dff8';
@@ -3455,9 +3471,9 @@
     if(touchControlsVisible() && phase!=='title' && phase!=='gameover' && phase!=='paused') { drawTouchControls(); return; }
     panel(60,GAME_UI.footerY,1480,58); let help;
     if(releaseWindow) help=gamepadPresent()?`↑　ボム選択　　 X　${releaseWindow.armed?'起爆をやめる':'起爆する'}　　 A　予約取消`:`決定　${releaseWindow.armed?'起爆をやめる':'起爆する'}　　 次の固定直後に解放`;
-    else if(phase==='paused') help=touchCapable?'TAP / A  RESUME':'P / START  RESUME';
-    else if(phase==='title') help=touchCapable?'TAP / A  START':'ENTER / A  START';
-    else if(phase==='gameover') help=touchCapable?'TAP / A  RESTART':'ENTER / A  RESTART';
+    else if(phase==='paused') help=touchCapable?'タップ / A　再開':'P / START　再開';
+    else if(phase==='title') help=touchCapable?'タップ / A　開始':'ENTER / A　開始';
+    else if(phase==='gameover') help=touchCapable?'タップ / A　再挑戦':'ENTER / A　再挑戦';
     else help=gamepadPresent()?'十字キー　移動　↑: ボム選択　　 A/B　左/右回転　　 X　起爆予約　　 Y　即落下':'← →  移動　　 ↑ / Z  回転　　 ↓  ソフトドロップ　　 X / Y  ハードドロップ　　 C　SEED COPY';
     if(releaseWindow) help=gamepadPresent()?`↑: ボム選択　X: ${releaseWindow.armed?'起爆をやめる':'起爆する'}　A: 予約取消　次の固定後に解放`:`決定: ${releaseWindow.armed?'起爆をやめる':'起爆する'}　次の固定後に解放`;
     else if(phase==='paused') help='決定で再開　キャンセルで再開';
@@ -3888,13 +3904,244 @@
     }
     else if(toast && performance.now()<toastUntil && !(cardEffectText&&performance.now()<cardEffectUntil)) { ctx.fillStyle='rgba(7,20,31,.88)'; rr(540,45,520,46,16); text(toast,800,68,25,'#e3faff','center','700'); }
   }
+  function phoneHit(x,y,w,h,run,repeat=false,action='') { phoneHitRegions.push({x,y,w,h,run,repeat,action}); }
+  function phoneText(value,x,y,size=40,color='#eff8ff',align='left',weight='800') { ctx.font=`${weight} ${Math.max(30,size)}px "Yu Gothic UI", Meiryo, sans-serif`; ctx.textAlign=align; ctx.textBaseline='middle'; ctx.fillStyle=color; ctx.fillText(String(value??''),x,y); }
+  function phoneWrap(value,x,y,width,size=36,color='#d9f7ff',align='left',weight='700',maxLines=3,lineHeight=Math.round(size*1.35)) {
+    const source=String(value??''),paragraphs=source.split('\n'),lines=[]; let truncated=false; ctx.font=`${weight} ${Math.max(30,size)}px "Yu Gothic UI", Meiryo, sans-serif`;
+    paragraphLoop: for(let paragraphIndex=0;paragraphIndex<paragraphs.length;paragraphIndex++) {
+      const paragraph=paragraphs[paragraphIndex];
+      let line='';
+      if(!paragraph) { lines.push(''); if(lines.length>=maxLines) { truncated=true; break; } continue; }
+      for(const char of [...paragraph]) {
+        const next=line+char;
+        if(line&&ctx.measureText(next).width>width) { lines.push(line); line=char; if(lines.length>=maxLines) { truncated=true; break paragraphLoop; } }
+        else line=next;
+      }
+      if(line) { lines.push(line); if(lines.length>=maxLines&&paragraphIndex<paragraphs.length-1) { truncated=true; break; } }
+    }
+    if(lines.length>maxLines) { lines.length=maxLines; truncated=true; }
+    if(truncated&&lines.length) { let last=lines.at(-1); while(last&&ctx.measureText(`${last}…`).width>width) last=last.slice(0,-1); lines[lines.length-1]=`${last}…`; }
+    lines.forEach((entry,index)=>phoneText(entry,x,y+index*lineHeight,size,color,align,weight)); return lines.length;
+  }
+  function phoneButton(x,y,w,h,label,run,{selected=false,tone='#17384a',color='#effbff',repeat=false,action=''}={}) {
+    ctx.save(); ctx.fillStyle=selected?'#24566e':tone; rr(x,y,w,h,20); ctx.strokeStyle=selected?'#b7efff':'#5d9fb6'; ctx.lineWidth=selected?4:2; ctx.stroke(); ctx.restore();
+    phoneWrap(label,x+w/2,y+h/2-((String(label).length>8)?18:0),w-28,String(label).length>10?30:36,color,'center','900',2,38); phoneHit(x,y,w,h,run,repeat,action);
+  }
+  function phoneHeader(title,{back=true,detail=''}={}) {
+    ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#102534'; rr(18,18,864,104,24); ctx.strokeStyle='#37687e'; ctx.lineWidth=2; ctx.stroke();
+    if(back) phoneButton(34,36,132,68,'戻る',()=>command('cancel'),{tone:'#122c3b'});
+    phoneText(title,back?190:48,70,title.length>13?38:46,'#effbff','left','900'); if(detail) phoneText(detail,856,72,30,'#9ed5e7','right','800');
+  }
+  function phoneMenuCard(x,y,w,h,title,detail,selected,run,{accent='#8bdcff',icon=''}={}) {
+    ctx.fillStyle=selected?'#1b455a':'#0c2230'; rr(x,y,w,h,20); ctx.strokeStyle=selected?accent:'#294d60'; ctx.lineWidth=selected?4:2; ctx.stroke();
+    const iconChars=[...String(icon)].length, titleInset=icon?(iconChars>1?120:74):28;
+    if(icon) phoneText(icon,x+(iconChars>1?54:38),y+44,iconChars>1?34:42,'#ffe18a','center','900');
+    phoneWrap(title,x+titleInset,y+38,w-titleInset-28,38,selected?'#ffffff':'#d8f3fb','left','900',2,44);
+    if(detail) phoneWrap(detail,x+28,y+h-46,w-56,30,selected?'#c8edf7':'#8fb6c3','left','700',2,36);
+    phoneHit(x,y,w,h,run);
+  }
+  function phoneWindow(items,index,count=8) { if(items.length<=count) return {items,start:0}; const start=Math.max(0,Math.min(items.length-count,index-Math.floor(count/2))); return {items:items.slice(start,start+count),start}; }
+  function phoneBottomBack(label='戻る') { phoneButton(34,H-108,260,82,label,()=>command('cancel'),{tone:'#122c3b'}); }
+  function phoneDrawNext() {
+    phoneText('NEXT',24,120,34,'#9ed5e7','left','900');
+    nextQueue.slice(0,3).forEach((spec,index)=>{ const y=145+index*150; ctx.fillStyle='#0c2230'; rr(16,y,156,128,16); ctx.strokeStyle='#31576a'; ctx.lineWidth=2; ctx.stroke(); drawPiecePreview(spec,20,y+4,148,120,28); phoneText(`${index+1}`,154,y+102,28,'#9fd8eb','right','800'); });
+    if(nextQueue.length>3) phoneText(`+${Math.max(0,NEXT_COUNT-3)}`,94,600,30,'#7daaba','center','800');
+  }
+  function phoneDrawOpponent() {
+    if(!P2P_MATCH_ENABLED&&!ONLINE_MATCH_ENABLED) return;
+    const state=onlineOpponentState,x=744,y=670,size=12; phoneText('相手',810,y-28,30,'#9ed5e7','center','900'); ctx.fillStyle='#0a1521'; rr(x-8,y-8,136,264,14); ctx.strokeStyle='#426f80'; ctx.lineWidth=2; ctx.stroke();
+    if(!state?.board) { phoneWrap('接続中',810,y+110,120,30,'#8caeba','center','700',2); return; }
+    let remote; try { remote=decodeReplayBoard(state.board); } catch(_) { phoneWrap('確認中',810,y+110,120,30,'#ffb2bd','center','700',2); return; }
+    for(let row=0;row<20;row++) for(let col=0;col<10;col++) { const value=remote[row][col],px=x+col*size,py=y+row*size; ctx.fillStyle=(row+col)%2?'#102231':'#0e1e2c'; ctx.fillRect(px,py,size-1,size-1); if(value?.terrain) { ctx.fillStyle=value.terrain==='stone'?'#8291a0':value.terrain==='ice'?'#8edfff':'#59bb78'; ctx.fillRect(px+2,py+2,size-4,size-4); } else if(value?.color) { ctx.fillStyle=colorById(value.color).hex; ctx.fillRect(px+2,py+2,size-4,size-4); } }
+    if(state.active&&SHAPES[state.active.type]) rotated(SHAPES[state.active.type],state.active.rotation||0).forEach(([dx,dy],index)=>{ const col=state.active.x+dx,row=state.active.y+dy;if(col<0||col>=10||row<0||row>=20)return;ctx.fillStyle=colorById(state.active.colors?.[index]||'red').hex;ctx.fillRect(x+col*size+1,y+row*size+1,size-2,size-2); });
+  }
+  function phoneDrawGameSidebars() {
+    phoneDrawNext();
+    phoneText(String(score).padStart(6,'0'),882,122,34,'#ffe18a','right','900'); phoneText(`${turn}手`,882,164,30,'#b9eaff','right','800'); phoneText(`速さ ${paceLevel()}`,882,202,30,paceLevel()>=5?'#ffe18a':'#9ec9d7','right','800'); phoneText(`空き ${headroom()}`,882,240,30,headroom()<5?'#ff9b7a':'#9ec9d7','right','800');
+    if(puzzleState) phoneWrap(`残り ${Math.max(0,puzzleState.turnLimit-turn)}手\n${ACTIVE_PUZZLE.goal.text}`,742,300,142,30,'#ffe18a','left','800',4,38);
+    else if(ROGUE_ENABLED) phoneWrap(rogueObjectiveStatus(),742,300,142,30,'#b9eaff','left','800',5,38);
+    const selected=releaseTargetGroup(); if(selected) { const first=selected.cells[0],name=colorById(board[first[1]][first[0]].color).name,forecast=releaseForecast(selected); phoneText('ボム',742,410,30,'#9ed5e7','left','900'); phoneWrap(`${name}\n圧 ${selected.pressure}/${RULES.pressure.threshold}\n${forecast.cleared}マス`,742,454,142,31,releaseWindow?.armed?'#9cf7c1':'#ffe18a','left','900',4,39); }
+    else phoneWrap('同じ色を\n4つつなぐ',742,420,142,30,'#7296a4','left','700',3,38);
+    phoneDrawOpponent();
+  }
+  function phoneDrawGameControls() {
+    // Keep the phone controls visible even when a paired pad is detected. A
+    // browser can expose a dormant pad, and hiding the only touch controls
+    // would otherwise leave a phone session unusable.
+    const offset=Math.round(PHONE_EXTRA*.55);
+    phoneButton(24,1168+offset,260,82,groups.size?'ボムを選ぶ':'ボムなし',()=>command('reserve'),{tone:groups.size?'#17384a':'#10202b'});
+    phoneButton(302,1168+offset,430,82,releaseWindow?(releaseWindow.armed?'予約中':'爆発を予約'):'ボムを作ろう',()=>command('confirm'),{selected:!!releaseWindow?.armed,tone:releaseWindow?'#284d38':'#10202b'});
+    phoneButton(750,1168+offset,126,82,'停止',()=>command('pause'),{tone:'#273342'});
+    phoneButton(26,1280+offset,190,118,'左',()=>command('left'),{repeat:true,action:'left'}); phoneButton(230,1280+offset,190,118,'右',()=>command('right'),{repeat:true,action:'right'}); phoneButton(128,1416+offset,190,118,'下',()=>command('down'),{repeat:true,action:'down'});
+    phoneButton(480,1280+offset,130,100,'左回転',()=>command('rotateLeft'),{tone:'#1a4052'}); phoneButton(624,1400+offset,250,134,'即落下',()=>command('drop'),{selected:true,tone:'#24566e'}); phoneButton(744,1280+offset,130,100,'右回転',()=>command('rotateRight'),{tone:'#1a4052'});
+  }
+  function phoneDrawGameplay() {
+    const bg=ctx.createLinearGradient(0,0,W,H); bg.addColorStop(0,'#0b1d2a'); bg.addColorStop(1,'#050a12'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    drawBoard(); phoneDrawGameSidebars(); phoneDrawGameControls();
+    if(cardEffectText&&performance.now()<cardEffectUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1080,520,64,18); phoneWrap(cardEffectText,450,1110,480,30,'#ffe18a','center','900',2,34); }
+    else if(toast&&performance.now()<toastUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1080,520,64,18); phoneWrap(toast,450,1110,480,30,'#e3faff','center','800',2,34); }
+  }
+  function phoneDrawTitle() {
+    phoneHeader('PUZZ-LE',{back:false}); phoneText('PUZZ',52,190,76,'#f1fbff','left','900'); phoneText('-LE',570,190,76,'#61d1f5','left','900');
+    const labels=['ランク戦','デイリー','詰めパズル','構築ラボ','ローグ・ラン','フレンド対戦','つくる'];
+    const gap=158+Math.min(50,Math.floor(PHONE_EXTRA/7)); labels.forEach((label,index)=>phoneMenuCard(60,260+index*gap,780,132,label,'',titleMenuIndex===index,()=>{titleMenuIndex=index;command('start');},{icon:['◆','日','詰','構','路','対','＋'][index]}));
+    phoneButton(620,H-210,220,76,'操作設定',()=>command('settings'),{tone:'#122c3b'});
+  }
+  function phoneDrawListScreen(title,items,index,choose,{count=8,detail='',back=true,top=150,rowH=154}={}) {
+    phoneHeader(title,{back,detail}); const windowed=phoneWindow(items,index,count);
+    windowed.items.forEach((item,offset)=>{ const actual=windowed.start+offset,y=top+offset*rowH; phoneMenuCard(46,y,808,rowH-18,item.title||String(item),item.detail||'',actual===index,()=>choose(actual,item),{accent:item.accent||'#8bdcff',icon:item.icon||''}); });
+    if(items.length>count) phoneText(`${index+1} / ${items.length}`,848,1450,30,'#8fb6c3','right','800');
+    if(back) phoneBottomBack();
+  }
+  function phoneDrawPuzzleSelect() {
+    const puzzles=selectablePuzzles(); phoneHeader(puzzleLibraryPage?'地形問題':'基本問題',{detail:`${puzzles.length}問`}); phoneButton(650,34,214,70,puzzleLibraryPage?'基本へ':'地形へ',()=>command('reserve'),{tone:'#173b35'});
+    puzzles.forEach((puzzle,index)=>{ const col=index%2,row=Math.floor(index/2),x=34+col*424,y=150+row*184,progress=puzzleProgress(puzzle.id),unlocked=puzzleIsUnlocked(puzzle,puzzles); phoneMenuCard(x,y,408,164,`${index+1}. ${unlocked?puzzle.name:'？？？'}`,unlocked?puzzle.lesson:'前の問題をクリア',puzzleMenuIndex===index,()=>{if(!unlocked)return;puzzleMenuIndex=index;command('start');},{accent:progress.cleared?'#ffe18a':'#8bdcff',icon:progress.cleared?`${progress.stars||1}★`:''}); });
+    phoneBottomBack();
+  }
+  function phoneDrawDailySelect() {
+    const dates=archiveDates(),items=dates.map(date=>{const record=dailyLeagueRecord(date);return {title:formatDailyDate(date),detail:record.medal?`${dailyMedalText(record.medal)}　${record.best.toLocaleString()}点`:'未挑戦',accent:record.medal?'#ffe18a':'#8bdcff'};});
+    phoneDrawListScreen('デイリー',items,dailyMenuIndex,index=>{dailyMenuIndex=index;command('start');},{count:8,detail:`連続 ${dailyLeagueSummary().streak}日`});
+  }
+  function phoneDrawDraft() {
+    const items=draftOffers.map(card=>({title:`${card.icon} ${card.name}`,detail:card.text,accent:'#ffe18a'})); phoneHeader('カードドラフト',{back:false,detail:`${buildCards.length+1}枚目`});
+    const cardGap=330+Math.min(120,Math.floor(PHONE_EXTRA/3)); items.forEach((item,index)=>phoneMenuCard(46,190+index*cardGap,808,290,item.title,item.detail,draftMenuIndex===index,()=>{draftMenuIndex=index;command('start');},{accent:item.accent}));
+    phoneButton(180,H-360,540,90,`入れ替え　残り${draftRerolls}`,()=>command('reserve'),{tone:'#173b35'}); phoneButton(170,H-210,560,90,'この構成で開始',()=>command('cancel'),{tone:'#273342'});
+  }
+  function phoneDrawRogueHub() {
+    const checkpoint=rogueCheckpoint(),choices=checkpoint?[['続きから','保存したランを再開'],['新しいラン','最初から始める'],['ラン記録','過去の結果'],['カード辞典','カードを見る']]:[['新しいラン','最初から始める'],['ラン記録','過去の結果'],['カード辞典','カードを見る']];
+    phoneDrawListScreen('ローグ・ラン',choices.map(([title,detail])=>({title,detail})),rogueHubIndex,index=>{rogueHubIndex=index;command('start');},{count:4,top:250,rowH:230});
+  }
+  function phoneDrawRogueHistory() {
+    const history=rogueHistory(),items=history.length?history.map((run,index)=>({title:`${run.win?'制覇':'終了'}　${(run.score||0).toLocaleString()}点`,detail:`${formatRogueTime(run.elapsedMs||0)}　${(run.cards||[]).length}枚`,accent:run.win?'#9cf7c1':'#8bdcff'})):[{title:'まだ記録がありません',detail:'ランを遊ぶとここに残ります'}];
+    phoneDrawListScreen('ラン記録',items,Math.min(rogueHistoryIndex,items.length-1),index=>{rogueHistoryIndex=index;},{count:8});
+  }
+  function phoneDrawCardLibrary() {
+    phoneHeader('カード辞典',{detail:`${cardLibraryIndex+1}/${BUILD_POOL.length}`}); const page=Math.floor(cardLibraryIndex/6),visible=BUILD_POOL.slice(page*6,page*6+6);
+    visible.forEach((card,offset)=>{const index=page*6+offset,col=offset%2,row=Math.floor(offset/2),x=34+col*424,y=170+row*340,available=cardUnlocked(card,rogueHistory());phoneMenuCard(x,y,408,314,available?`${card.icon} ${card.name}`:'未解放',available?card.text:unlockRequirement(card),cardLibraryIndex===index,()=>{cardLibraryIndex=index;},{accent:available?'#ffe18a':'#607985'});}); phoneBottomBack();
+  }
+  function phoneDrawRogueMap() {
+    const routes=rogueRoutes(),items=routes.map(route=>({title:route.name,detail:`${route.detail}　${route.risk||''}`,accent:route.kind==='elite'?'#ffb07c':route.kind==='rest'?'#9cf7c1':'#8bdcff'}));
+    phoneDrawListScreen(`進行マップ ${rogueNode+1}/4`,items,rogueRouteIndex,index=>{rogueRouteIndex=index;command('start');},{count:3,top:240,rowH:300});
+  }
+  function phoneDrawRogueRest() {
+    if(rogueRestRemoving) { const cards=buildCards.filter(card=>!card.upgraded),items=cards.map(card=>({title:`${card.icon} ${card.name}`,detail:cardUpgradeSummary(card),accent:'#9cf7c1'})); phoneDrawListScreen('強化するカード',items,rogueRestIndex,index=>{rogueRestIndex=index;command('start');},{count:6,top:200,rowH:190}); return; }
+    const options=rogueRestOptions(),items=options.map(option=>({title:option.name,detail:option.detail,accent:'#9cf7c1'})); phoneDrawListScreen('休憩所',items,rogueRestIndex,index=>{rogueRestIndex=index;command('start');},{count:3,top:300,rowH:260});
+  }
+  function phoneDrawRogueReward() {
+    const items=rogueOffers.map(card=>({title:`${card.icon} ${card.name}${rogueEncounterKind==='elite'?' ＋':''}`,detail:`${rogueEncounterKind==='elite'?cardUpgradeSummary(card)+'　':''}${card.text}`,accent:'#ffe18a'}));
+    phoneDrawListScreen('カード報酬',items,rogueRewardIndex,index=>{rogueRewardIndex=index;command('start');},{count:3,top:220,rowH:330});
+  }
+  function phoneDrawCreatorHub() {
+    const saved=readCustomPuzzles(),items=[{title:'新しく作る',detail:'盤面を一から作成',icon:'＋'},{title:'自分の作品',detail:`保存 ${saved.length}問`,icon:'◆'},{title:'自作コース',detail:'2～3問をつなぐ',icon:'路'},{title:'みんなの問題',detail:'公開問題で遊ぶ',icon:'人'}];
+    phoneDrawListScreen('つくる',items,creatorMenuIndex,index=>{creatorMenuIndex=index;command('start');},{count:4,top:220,rowH:250});
+  }
+  function phoneDrawCreatorLibrary(course=false) {
+    const puzzles=course?verifiedCustomPuzzles():readCustomPuzzles(),index=course?creatorCourseIndex:creatorLibraryIndex,items=puzzles.map(puzzle=>({title:puzzle.name,detail:puzzle.meta?.description||puzzle.lesson||'自作問題',accent:course&&creatorCourseIds.includes(puzzle.id)?'#9cf7c1':'#8bdcff'}));
+    if(!items.length) { phoneHeader(course?'自作コース':'自分の作品'); phoneWrap(course?'先に合格済みの問題を作ってください':'保存した問題はまだありません',450,520,760,42,'#d9f7ff','center','800',4,54); if(!course) phoneButton(170,720,560,110,'新しく作る',()=>openPuzzleEditor(),{selected:true}); phoneBottomBack(); return; }
+    phoneDrawListScreen(course?'自作コース':'自分の作品',items,index,actual=>{if(course){creatorCourseIndex=actual;command('reserve');}else{creatorLibraryIndex=actual;command('start');}},{count:7,detail:course?`${creatorCourseIds.length}/3選択`:''});
+    if(course) phoneButton(330,1395,540,84,'選んだコースを開始',()=>command('start'),{tone:'#173b35'});
+  }
+  function phoneDrawOnlineLobby() {
+    if(!P2P.roomCode) { const items=[{title:'部屋を作る',detail:'合言葉を決める',icon:'＋'},{title:'部屋に入る',detail:'同じ合言葉を入力',icon:'入'},{title:'クイック対戦',detail:'空いている相手を探す',icon:'速'}]; phoneDrawListScreen('フレンド対戦',items,onlineLobbyIndex,index=>{onlineLobbyIndex=index;command('start');},{count:3,top:260,rowH:280}); return; }
+    phoneHeader('フレンド対戦'); phoneText(P2P.mode==='quick'?'相手を探しています':`合言葉　${P2P.roomCode}`,450,350,46,'#ffe18a','center','900'); phoneWrap(onlineError||({hosting:'相手の参加を待っています',ready:'2人そろいました',quickWaiting:'相手を探しています',error:'接続できません'})[P2P.status]||'接続しています',450,470,760,40,onlineError?'#ffb2bd':'#d9f7ff','center','800',4,54); if(P2P.mode!=='quick') phoneButton(170,680,560,108,'合言葉をコピー',()=>command('share'),{selected:true,tone:'#173b35'}); phoneBottomBack('対戦をやめる');
+  }
+  function phoneDrawOnlineWait() {
+    const syncing=P2P.status==='syncing',failed=P2P.status==='error',reconnecting=P2P.status==='reconnecting',heading=failed?'通信エラー':syncing?'盤面を準備中':reconnecting?'再接続待ち':'対戦へ接続中'; phoneHeader(heading,{back:false});
+    phoneWrap(failed?(onlineError||'接続を戻せませんでした'):syncing?'両方の盤面を同じ状態にしています':reconnecting?(P2P.role==='host'?'相手の再接続を待っています':'ホストへつなぎ直しています'):'対戦相手へ接続しています',450,480,760,46,failed?'#ffb2bd':'#d9f7ff','center','900',4,62);
+    phoneWrap(reconnecting?'盤面と時間は保存されています\n45秒以内なら続きから再開します':syncing?'そろい終わるまで操作は入りません':'接続後、自動で対戦を始めます',450,760,720,36,'#ffe18a','center','700',4,50); phoneButton(170,H-520,560,110,'キャンセルして対戦を終了',()=>command('cancel'),{tone:'#243847'});
+  }
+  function phoneDrawPause() { phoneHeader('ポーズ',{back:false}); phoneButton(120,300,660,130,'つづける',()=>{pauseMenuIndex=0;command('start');},{selected:pauseMenuIndex===0}); phoneButton(120,470,660,130,'遊び方',()=>toggleHelp(),{tone:'#17384a'}); phoneButton(120,640,660,130,'操作設定',()=>openSettings(),{tone:'#17384a'}); phoneButton(120,810,660,130,'タイトルへ戻る',()=>{pauseMenuIndex=1;command('start');},{selected:pauseMenuIndex===1,tone:'#382a32'}); }
+  function phoneDrawResult(kind) {
+    const puzzle=kind==='puzzle',online=kind==='online',clear=phase==='puzzleComplete',won=online&&onlineMatchResult?.winnerId===onlineLocalPlayerId(),title=online?(won?'勝利！':'敗北'):puzzle?(clear?'パズルクリア':'パズル失敗'):ROGUE_ENABLED?'ローグ・ラン終了':PLAY_MODE==='build'?'構築ラボ結果':'今回の結果'; phoneHeader(title,{back:false});
+    phoneText(score.toLocaleString(),450,300,82,'#ffe18a','center','900'); phoneText(`${turn}手`,450,390,38,'#b9eaff','center','800');
+    if(puzzle) {
+      phoneWrap(ACTIVE_PUZZLE?.goal?.text||'',450,485,760,38,'#d9f7ff','center','800',4,52);
+      if(clear&&COMMUNITY_PUZZLE_ID) {
+        phoneText('この問題はどうだった？',450,680,38,'#ffe18a','center','900');
+        ['あとで','★','★★','★★★'].forEach((label,index)=>phoneButton(34+index*214,750,190,96,label,()=>{communityRatingIndex=index;},{selected:communityRatingIndex===index,tone:'#17384a',color:index?'#ffe18a':'#effbff'}));
+        phoneButton(130,900,640,110,'評価を送る',()=>command('start'),{selected:true,tone:'#24563f'}); phoneButton(130,1035,300,96,'解答を見る',()=>command('hint'),{tone:'#17384a'}); phoneButton(470,1035,300,96,'一覧へ戻る',()=>command('cancel'),{tone:'#243847'}); return;
+      }
+      if(COMMUNITY_DAILY_DATE) {
+        const progress=communityDailyResult?.progress,complete=!!progress?.completed;
+        phoneWrap(clear?(complete?`3問完走　合計 ${progress?.currentTurns||turn}手`:`${progress?.index||COMMUNITY_DAILY_INDEX+1} / 3 クリア`):'もう一度ためそう',450,650,760,40,clear?'#9cf7c1':'#ffb2bd','center','900',3,54);
+        phoneButton(130,850,640,112,clear?(complete?'本日の結果へ':'次の問題へ'):'もう一回',()=>command('start'),{selected:true,tone:'#24563f'});
+        if(clear) phoneButton(130,990,300,96,'そうじ盤面',()=>command('reserve'),{tone:'#173b35'});
+        phoneButton(clear?470:130,clear?990:1010,clear?300:640,96,'戻る',()=>command('cancel'),{tone:'#243847'}); return;
+      }
+      if(clear) phoneText(`${'★'.repeat(puzzleClearResult?.stars||1)}${'☆'.repeat(3-(puzzleClearResult?.stars||1))}`,450,650,54,'#ffe18a','center','900');
+    } else {
+      const detail=ROGUE_ENABLED?`到達 ${rogueNode+1}戦目　カード ${buildCards.length}枚`:PLAY_MODE==='build'?`カード ${buildCards.length}枚　最大連鎖 ${runStats.maxChain||0}`:`爆発 ${runStats.releases}　最大連鎖 ${runStats.maxChain||0}\nライン ${runStats.lineClears}　そうじ ${runStats.cleanupBlocks}`;
+      phoneWrap(detail,450,520,760,36,'#d9f7ff','center','800',4,52);
+      if(online) phoneWrap(onlineMatchResult?.reason||'試合終了',450,650,760,36,won?'#9cf7c1':'#ffb2bd','center','800',2,48);
+    }
+    phoneButton(130,850,640,120,online?(onlineRematchRequested?'相手を待っています':'再戦OK'):puzzle&&clear?'次へ':'もう一回',()=>command('start'),{selected:true,tone:'#24563f'}); phoneButton(130,1010,640,110,'戻る',()=>command('cancel'),{tone:'#243847'});
+  }
+  function phoneDrawTraining() { phoneHeader('はじめてコース',{back:false}); phoneText('3問で遊び方が分かる',450,250,44,'#d9f7ff','center','900'); [['1','ボムを作る'],['2','選んで爆発'],['3','つないで行消し']].forEach((step,index)=>phoneMenuCard(90,360+index*230,720,180,`${step[0]}　${step[1]}`,'実際に動かして覚えよう',false,()=>command('start'),{accent:'#ffe18a'})); phoneButton(170,H-480,560,110,'はじめる',()=>command('start'),{selected:true}); phoneButton(170,H-330,560,90,'いつものゲームへ',()=>command('cancel'),{tone:'#243847'}); }
+  function phoneDrawHelp() {
+    phoneHeader('遊び方',{back:false}); const lines=['同じ色を4つつなげるとボムになる','「ボムを選ぶ」で好きなボムへ移動','爆発を予約し、次のピースを置くと爆発','ボムをくっつけるほど盤面を広くそうじ']; lines.forEach((line,index)=>{phoneText(`${index+1}`,70,250+index*210,44,'#ffe18a','center','900');phoneWrap(line,130,235+index*210,700,38,'#e8f8ff','left','800',3,52);}); phoneButton(170,1180,560,110,'閉じる',()=>command('cancel'),{selected:true});
+  }
+  function phoneDrawTutorial() { const slides=tutorialSlides(),slide=slides[tutorialStep]; phoneHeader(`${TERRAIN_ENABLED?'地形ガイド':'最初の遊び方'} ${tutorialStep+1}/${slides.length}`,{back:false}); phoneText(slide[0],450,430,72,'#ffe18a','center','900'); phoneWrap(slide[1],450,560,740,42,'#e8f8ff','center','800',6,58); phoneButton(170,H-560,560,110,tutorialStep===slides.length-1?'はじめる':'次へ',()=>command('start'),{selected:true}); phoneButton(170,H-410,560,90,'閉じる',()=>command('cancel'),{tone:'#243847'}); }
+  function phoneDrawSettings() {
+    phoneHeader('操作設定',{back:false,detail:remapPadAction?'ボタンを押す':`音 ${Math.round(sfxVolume*100)}%`}); const windowed=phoneWindow(BINDABLE_ACTIONS,settingsIndex,8);
+    const rowGap=126+Math.min(40,Math.floor(PHONE_EXTRA/8)); windowed.items.forEach((action,offset)=>{const index=windowed.start+offset,y=145+offset*rowGap,duplicate=gamepadBindingIsDuplicate(action),detail=`キー ${displayKey(keyBindings[action])}　パッド ${displayGamepad(gamepadBindings[action])||'未設定'}`;phoneMenuCard(34,y,832,110,ACTION_LABELS[action],detail,index===settingsIndex,()=>{settingsIndex=index;beginGamepadRemap();},{accent:duplicate?'#ffe18a':'#8bdcff'});if(duplicate)phoneText('重複',840,y+78,30,'#ffe18a','right','900');});
+    phoneButton(34,H-440,260,76,'前の項目',()=>{settingsIndex=Math.max(0,settingsIndex-8);},{tone:'#122c3b'}); phoneButton(320,H-440,260,76,'次の項目',()=>{settingsIndex=Math.min(BINDABLE_ACTIONS.length-1,settingsIndex+8);},{tone:'#122c3b'}); phoneButton(606,H-440,260,76,`音 ${Math.round(sfxVolume*100)}%`,()=>cycleSfxVolume(),{tone:'#17384a'});
+    phoneButton(34,H-340,260,82,'初期設定',()=>restoreAllInputDefaults(),{tone:'#173b35'}); phoneButton(320,H-340,260,82,'保存を消す',()=>clearSavedInputSettings(),{tone:'#4b3027'}); phoneButton(606,H-340,260,82,fullscreenElement()?'全画面終了':'全画面',()=>toggleFullscreenMode(),{tone:'#173b35'}); phoneButton(34,H-200,260,82,'戻る',()=>closeSettings(),{tone:'#122c3b'});
+  }
+  function phoneDrawEditor() {
+    phoneHeader('自作パズル'); const size=52,bx=190,by=140;
+    ctx.fillStyle='#081824'; rr(bx-10,by-10,size*10+20,size*20+20,18); ctx.strokeStyle='#477b8d';ctx.lineWidth=2;ctx.stroke();
+    for(let y=0;y<20;y++) for(let x=0;x<10;x++){const px=bx+x*size,py=by+y*size,value=editorBoard[y][x];ctx.fillStyle=(x+y)%2?'#102230':'#0d1d2a';ctx.fillRect(px,py,size-1,size-1);if(value){ctx.fillStyle=colorById(value).hex;rr(px+3,py+3,size-7,size-7,5);}}
+    ctx.strokeStyle='#fff';ctx.lineWidth=3;ctx.strokeRect(bx+editorX*size+2,by+editorY*size+2,size-5,size-5);
+    phoneHit(bx,by,size*10,size*20,(tapX,tapY)=>{const x=Math.max(0,Math.min(9,Math.floor((tapX-bx)/size))),y=Math.max(0,Math.min(19,Math.floor((tapY-by)/size)));editorX=x;editorY=y;editorBoard[y][x]=CUSTOM_PUZZLE_COLORS[editorColorIndex];editorAnalysis=null;});
+    const chosen=CUSTOM_PUZZLE_COLORS[editorColorIndex];
+    phoneButton(20,160,150,150,`置く色\n${colorById(chosen).name}`,()=>{editorColorIndex=(editorColorIndex+1)%CUSTOM_PUZZLE_COLORS.length;editorAnalysis=null;},{tone:'#17384a',color:colorById(chosen).light});
+    phoneButton(20,340,150,132,'1マス\n消す',()=>{editorBoard[editorY][editorX]=null;editorAnalysis=null;},{tone:'#4b3027'});
+    phoneButton(20,500,150,210,`目標\n${editorGoalIndex+1}/${EDITOR_GOALS.length}`,()=>{editorGoalIndex=(editorGoalIndex+1)%EDITOR_GOALS.length;editorAnalysis=null;},{tone:'#3a3521',color:'#ffe18a'});
+    phoneButton(20,800,150,108,'作品情報',()=>openCreatorMetadata(),{tone:'#17384a'}); phoneButton(20,930,150,108,'自動確認',()=>analyzeEditorPuzzle(),{tone:'#173b35'});
+    editorQueueColors.forEach((queueColor,index)=>phoneButton(730,160+index*180,150,150,`${index+1}手目\n${colorById(queueColor).name}`,()=>{editorQueueIndex=index;editorQueueColors[index]=CUSTOM_PUZZLE_COLORS[(CUSTOM_PUZZLE_COLORS.indexOf(queueColor)+1)%CUSTOM_PUZZLE_COLORS.length];editorAnalysis=null;},{selected:editorQueueIndex===index,tone:'#17384a',color:colorById(queueColor).light}));
+    phoneButton(190,1210,250,100,'保存',()=>command('pause'),{tone:'#173b35'}); phoneButton(460,1210,250,100,'テスト',()=>command('drop'),{selected:true}); phoneWrap(EDITOR_GOALS[editorGoalIndex].text,450,1350,540,36,'#ffe18a','center','800',3,46); phoneBottomBack();
+  }
+  function phoneDrawCommunityBrowse() {
+    phoneHeader('みんなの問題',{detail:COMMUNITY_SORTS[communitySortIndex].label});
+    phoneMenuCard(34,150,832,150,'今日の3問',communityDailyStatus==='ready'?'3問を順番に遊ぶ':'準備中',communityDailyFocus,()=>{communityDailyFocus=true;command('start');},{accent:'#9cf7c1',icon:'日'});
+    phoneButton(34,320,402,76,`タグ ${COMMUNITY_TAG_FILTERS[communityTagIndex]}`,()=>command('reserve'),{tone:'#17384a'}); phoneButton(464,320,402,76,`並び ${COMMUNITY_SORTS[communitySortIndex].label}`,()=>command('share'),{tone:'#17384a'});
+    const visible=communityPuzzles.slice(0,6); visible.forEach((puzzle,index)=>phoneMenuCard(34,420+index*160,832,144,creatorText(puzzle.title,20),`by ${creatorText(puzzle.author,14)}　${creatorText(puzzle.goal,18)}`,!communityDailyFocus&&communityIndex===index,()=>{communityDailyFocus=false;communityIndex=index;command('start');},{accent:'#8bdcff'})); if(!visible.length) phoneWrap(communityError||'公開問題はまだありません',450,560,760,40,communityError?'#ffb2bd':'#9ed5e7','center','800',4,54); phoneBottomBack();
+  }
+  function phoneDrawCommunityDaily() {
+    if(!communityDaily) { phoneHeader('今日の3問'); phoneWrap(communityError||'問題を準備できません',450,500,760,42,'#ffb2bd','center','900',4,58); phoneBottomBack(); return; }
+    phoneHeader('今日の3問',{detail:formatDailyDate(communityDaily.date)}); const progress=communityDaily.progress;
+    communityDaily.puzzles.forEach((puzzle,index)=>phoneMenuCard(50,220+index*330,800,280,`${index+1}. ${creatorText(puzzle.title,20)}`,`${creatorText(puzzle.goal,22)}　${puzzle.turnLimit}手まで`,index===progress.index&&!progress.completed,()=>command('start'),{accent:index<progress.index||progress.completed?'#9cf7c1':'#8bdcff',icon:index<progress.index||progress.completed?'✓':''})); phoneButton(330,H-360,540,92,'今週のそうじ',()=>command('reserve'),{tone:'#173b35'}); phoneBottomBack();
+  }
+  function phoneDrawCommunityCleanup() { const cleanup=communityCleanupData; phoneHeader('みんなのそうじ'); if(!cleanup){phoneWrap('盤面を読み込めません',450,500,760,42,'#ffb2bd','center','900',3);phoneBottomBack();return;} drawCleanupBoard(cleanup,175,230,55); phoneText(`${cleanup.cleaned}/${cleanup.total}`,450,900,64,cleanup.goalReached?'#9cf7c1':'#ffe18a','center','900'); phoneWrap(`あと ${cleanup.remaining}マス\nあなた ${cleanup.yourCleanup}マス`,450,1000,700,38,'#d9f7ff','center','800',4,54); phoneButton(170,H-360,560,100,'戻る',()=>command('cancel'),{selected:true}); }
+  function phoneDrawCommunityReport() { const reasons=['不適切','解けない','説明が違う','その他','やめる']; phoneHeader('この問題を通報'); reasons.forEach((reason,index)=>phoneMenuCard(90,220+index*210,720,170,reason,'',communityReportIndex===index,()=>{communityReportIndex=index;command('start');},{accent:reason==='やめる'?'#8bdcff':'#ffb2bd'})); phoneBottomBack(); }
+  function phoneDrawCompare() { phoneHeader('リプレイ比較'); const latest=compareFrame(compareLatest),best=compareFrame(compareBest); drawCompareBoard(latest,190,260,'直近','#8bdcff'); drawCompareBoard(best,510,260,'自己ベスト','#9cf7c1'); phoneText(`進行 ${compareIndex}%`,450,780,42,'#ffe18a','center','900'); phoneButton(80,900,220,100,'前へ',()=>command('left'),{repeat:true,action:'left'}); phoneButton(340,900,220,100,'後へ',()=>command('right'),{repeat:true,action:'right'}); phoneBottomBack(); }
+  function phoneDrawReplay() { const bg=ctx.createLinearGradient(0,0,W,H);bg.addColorStop(0,'#0b1d2a');bg.addColorStop(1,'#050a12');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H); drawBoard(); phoneText('リプレイ',24,120,32,'#d9f7ff','left','900'); phoneText(`${replayIndex+1}/${replayFrames.length}`,876,120,30,'#9ed5e7','right','800'); phoneButton(34,H-360,190,100,'最初',()=>command('seekStart'),{tone:'#17384a'}); phoneButton(244,H-360,190,100,'前へ',()=>command('left'),{repeat:true,action:'left'}); phoneButton(454,H-360,190,100,'後へ',()=>command('right'),{repeat:true,action:'right'}); phoneButton(664,H-360,202,100,'速度',()=>command('speedUp'),{tone:'#173b35'}); phoneBottomBack(); }
+  function phoneDrawSpectator() { phoneHeader('オンライン観戦'); const states=Object.values(onlineSpectatorStates); phoneWrap(states.length?`${states.length}人の盤面を受信中`:'対戦開始を待っています',450,420,760,46,'#d9f7ff','center','900',4,62); phoneWrap('観戦中は操作できません',450,650,700,36,'#9ed5e7','center','700',2); phoneBottomBack(); }
+  function drawPhoneUI() {
+    if(settingsOpen) { phoneDrawSettings(); return; }
+    if(helpOpen) { phoneDrawHelp(); return; }
+    if(tutorialOpen) { phoneDrawTutorial(); return; }
+    const screens={
+      title:phoneDrawTitle,trainingIntro:phoneDrawTraining,creatorHub:phoneDrawCreatorHub,creatorLibrary:()=>phoneDrawCreatorLibrary(false),creatorCourseSelect:()=>phoneDrawCreatorLibrary(true),puzzleEditor:phoneDrawEditor,
+      communityBrowse:phoneDrawCommunityBrowse,communityDaily:phoneDrawCommunityDaily,communityCleanup:phoneDrawCommunityCleanup,communityReport:phoneDrawCommunityReport,
+      onlineLobby:phoneDrawOnlineLobby,onlineMatchWait:phoneDrawOnlineWait,onlineSpectator:phoneDrawSpectator,onlineResult:()=>phoneDrawResult('online'),
+      puzzleSelect:phoneDrawPuzzleSelect,dailySelect:phoneDrawDailySelect,draft:phoneDrawDraft,rogueHub:phoneDrawRogueHub,rogueHistory:phoneDrawRogueHistory,cardLibrary:phoneDrawCardLibrary,
+      rogueMap:phoneDrawRogueMap,rogueRest:phoneDrawRogueRest,rogueReward:phoneDrawRogueReward,compare:phoneDrawCompare,replay:phoneDrawReplay,paused:phoneDrawPause,
+      puzzleComplete:()=>phoneDrawResult('puzzle'),puzzleFailed:()=>phoneDrawResult('puzzle'),gameover:()=>phoneDrawResult('game'),falling:phoneDrawGameplay
+    };
+    const screen=screens[phase]; if(screen) { screen(); return; }
+    phoneHeader('PUZZ-LE',{back:false}); phoneWrap('画面を準備しています',450,600,760,42,'#d9f7ff','center','900',3,58); phoneButton(170,850,560,100,'タイトルへ戻る',()=>{phase='title';},{tone:'#243847'});
+  }
   function render() {
     document.documentElement.dataset.appPhase=phase;
+    if(PHONE_UI) { phoneHitRegions=[]; ctx.clearRect(0,0,W,H); ctx.save(); if(!reducedMotion&&performance.now()<screenShakeUntil) { const amount=(screenShakeUntil-performance.now())/360*8; ctx.translate(Math.sin(time*.22)*amount,Math.cos(time*.31)*amount); } drawPhoneUI(); ctx.restore(); }
+    else {
     ctx.clearRect(0,0,W,H); const bg=ctx.createLinearGradient(0,0,W,H); bg.addColorStop(0,'#0b1d2a'); bg.addColorStop(1,'#050a12'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
     ctx.save();
     if(!reducedMotion && performance.now()<screenShakeUntil) { const amount=(screenShakeUntil-performance.now())/360*9; ctx.translate(Math.sin(time*.22)*amount,Math.cos(time*.31)*amount); }
     drawNext(); drawBoard(); drawGroups(); drawStats(); drawBuildTrial(); drawOnlineOpponent(); drawOnlineAttackQueue(); drawCardEffect(); drawFooter(); drawTouchPause(); drawOverlay(); drawMenuTouchOverlay();
     ctx.restore();
+    }
     const phaseLabels={title:'タイトル',falling:'プレイ中',paused:'ポーズ',gameover:'ゲームオーバー',puzzleComplete:'パズルクリア',puzzleFailed:'パズル失敗',puzzleSelect:'問題集',dailySelect:'デイリーアーカイブ',draft:'カードドラフト',rogueHub:'ローグラン入口',rogueHistory:'ラン記録',cardLibrary:'カード辞典',rogueMap:'進行マップ',rogueRest:'休憩所',rogueReward:'カード報酬',creatorHub:'作成メニュー',creatorLibrary:'自分の作品',creatorCourseSelect:'自作コース',puzzleEditor:'パズル作成',communityBrowse:'みんなの問題',communityDaily:'今日の三問',communityCleanup:'みんなのそうじ',communityReport:'通報画面',onlineLobby:'オンライン部屋',onlineMatchWait:'オンライン接続中',onlineSpectator:'オンライン観戦',onlineResult:'オンライン結果',compare:'リプレイ比較',replay:'リプレイ',trainingIntro:'はじめてコース'};
     const state=tutorialOpen?'初回チュートリアル':helpOpen?'ルール説明':settingsOpen?'操作設定':phaseLabels[phase]||'メニュー';
     const release=lastReleaseInfo?` 最後の爆発は${lastReleaseInfo.color}、${lastReleaseInfo.chain}連鎖、${lastReleaseInfo.lineClears}行。`:'';
@@ -3926,6 +4173,7 @@
     receiveAttacks:attacks=>{ if(Array.isArray(attacks)) incomingAttacks.push(...attacks.map(attack=>({...attack,receivedTurn:turn}))); return p2pAuthoritySnapshot(); },
     snapshot:p2pAuthoritySnapshot
   };
+  if(P2P_HEADLESS) document.documentElement.dataset.p2pHeadlessReady=`v${P2P_PROTOCOL_VERSION}`;
   if(QUERY.has('debug')) window.__PUZZLE_DEBUG__={
     snapshot: () => {
       const target=releaseTargetGroup(), forecast=target?nextGrowthForecast(target):null;
@@ -3973,7 +4221,7 @@
   else if(!IMPORTED_REPLAY&&PLAY_MODE==='puzzle'&&QUERY.has('puzzle')) { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); }
   else if(!IMPORTED_REPLAY&&PLAY_MODE==='daily'&&QUERY.has('date')) { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); }
   else if(!IMPORTED_REPLAY&&['terrain','attribute','pvp'].includes(PLAY_MODE)&&QUERY.has('mode')) { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); }
-  requestAnimationFrame(loop);
+  if(!P2P_HEADLESS) requestAnimationFrame(loop);
 })();
 </script>
 <script>
@@ -3986,11 +4234,14 @@
     let el=document.getElementById('pwa-update-notice');
     if(!el){
       el=document.createElement('div'); el.id='pwa-update-notice'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
-      // Keep update feedback in the unused header strip: a bottom toast hides the touch controls.
-      el.style.cssText='position:fixed;left:50%;top:14px;z-index:100000;transform:translateX(-50%);max-width:min(92vw,680px);padding:10px 20px;border:2px solid #79d8ff;border-radius:14px;background:#0d2130;color:#effbff;text-align:center;font:800 22px/1.35 "Yu Gothic UI","Meiryo",sans-serif;box-shadow:0 14px 44px rgba(0,0,0,.5)';
+      // On phone, keep the persistent update notice out of the board centre
+      // and away from the touch controls. Desktop retains the wide header chip.
+      el.style.cssText=document.documentElement.dataset.phoneUi==='1'
+        ?'position:fixed;right:max(env(safe-area-inset-right),6px);top:max(env(safe-area-inset-top),6px);z-index:100000;max-width:min(48vw,210px);padding:6px 9px;border:1px solid #79d8ff;border-radius:10px;background:rgba(13,33,48,.94);color:#effbff;text-align:center;font:800 14px/1.3 "Yu Gothic UI","Meiryo",sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.45)'
+        :'position:fixed;left:50%;top:14px;z-index:100000;transform:translateX(-50%);max-width:min(92vw,680px);padding:10px 20px;border:2px solid #79d8ff;border-radius:14px;background:#0d2130;color:#effbff;text-align:center;font:800 22px/1.35 "Yu Gothic UI","Meiryo",sans-serif;box-shadow:0 14px 44px rgba(0,0,0,.5)';
       document.body.appendChild(el);
     }
-    el.textContent=message;
+    el.textContent=document.documentElement.dataset.phoneUi==='1'&&message.startsWith('更新があります')?'更新あり。タイトルで反映':message;
   }
   function atSafeReloadPoint(){ return document.documentElement.dataset.appPhase==='title'; }
   async function refreshOfflineShell(){
