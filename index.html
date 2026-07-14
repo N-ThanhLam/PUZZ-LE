@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-2">
+<meta name="puzzle-build" content="pwa-20260715-3">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -3005,6 +3005,7 @@
     return Promise.resolve(result).then(()=>lockAppOrientation()).then(()=>true).catch(()=>{ if(!silent) say('全画面に切り替えられませんでした',1600); return false; }).finally(()=>{fullscreenRequestPending=false;});
   }
   function toggleFullscreenMode() {
+    if(PHONE_UI&&!installedAppMode()) { say('ホーム画面に追加すると縦全画面になります',1800); return; }
     if(fullscreenElement()) {
       const exit=document.exitFullscreen||document.webkitExitFullscreen;
       if(exit) Promise.resolve(exit.call(document)).catch(()=>say('全画面を終了できませんでした',1600));
@@ -3016,7 +3017,6 @@
   function enterMobileConsoleMode() {
     if(!touchCapable) return;
     lockAppOrientation();
-    requestAppFullscreen(true);
   }
   function touchButtonRects() {
     const buildTouch=PLAY_MODE==='build', moveTop=buildTouch?690:NEXT_COUNT===8?545:500;
