@@ -22,7 +22,7 @@
   html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#071018; }
   /* The app stores the largest measured viewport in these variables. When a
      status/home bar appears it overlays the playfield instead of shrinking it. */
-  body { display:grid; place-items:center; width:var(--app-w); height:var(--app-h); font-family:"Yu Gothic UI","Meiryo",sans-serif; }
+  body { display:grid; align-items:start; justify-items:center; width:var(--app-w); height:var(--app-h); font-family:"Yu Gothic UI","Meiryo",sans-serif; }
   canvas { width:min(var(--app-w),calc(var(--app-h) * 1.777777)); height:min(calc(var(--app-w) * .5625),var(--app-h)); display:block; touch-action:none; outline:none; }
   canvas:focus-visible { outline:none; }
   #rotate-notice { display:none; position:fixed; inset:0; z-index:5; place-items:center; text-align:center; background:#071018; color:#e8f9ff; font-size:30px; font-weight:800; line-height:1.8; }
@@ -509,8 +509,8 @@
     {action:'drop', label:'落下'}, {action:'rotateRight', label:'右回'}, {action:'pause', label:'停止'}, {action:'confirm', label:'起爆'}
   ];
   const TOUCH_LAYOUT = Object.freeze({
-    move:{left:64,width:142,height:92,gap:34},
-    action:{y:782,height:94,rotateWidth:166,dropWidth:246,gap:22},
+    move:{left:72,width:142,height:92,gap:34},
+    action:{y:786,height:94,rotateWidth:166,dropWidth:246,gap:22},
     bomb:{width:160,height:74,gap:22}
   });
   let board, groups, nextQueue, bag, active, phase, selectedGroup, score, lastChain, turn;
@@ -2771,12 +2771,12 @@
     document.documentElement.requestFullscreen?.().then(()=>screen.orientation?.lock?.('landscape').catch(()=>{})).catch(()=>{});
   }
   function touchButtonRects() {
-    const moveTop=PLAY_MODE==='build'?680:NEXT_COUNT===8?530:480;
-    const {left,width,height,gap}=TOUCH_LAYOUT.move, downX=left+(width+gap)/2, downY=moveTop+height+16;
+    const buildTouch=PLAY_MODE==='build', moveTop=buildTouch?690:NEXT_COUNT===8?545:500;
+    const {left,width,height,gap}=TOUCH_LAYOUT.move, moveHeight=buildTouch?80:height, downX=left+(width+gap)/2, downY=moveTop+moveHeight+(buildTouch?12:16);
     const move=[
-      {action:'left',label:'左',x:left,y:moveTop,width,height,repeat:true,zone:'move'},
-      {action:'right',label:'右',x:left+width+gap,y:moveTop,width,height,repeat:true,zone:'move'},
-      {action:'down',label:'下',x:downX,y:downY,width,height,repeat:true,zone:'move'}
+      {action:'left',label:'左',x:left,y:moveTop,width,height:moveHeight,repeat:true,zone:'move'},
+      {action:'right',label:'右',x:left+width+gap,y:moveTop,width,height:moveHeight,repeat:true,zone:'move'},
+      {action:'down',label:'下',x:downX,y:downY,width,height:moveHeight,repeat:true,zone:'move'}
     ];
     const action=TOUCH_LAYOUT.action, actionX=884;
     const core=[
@@ -2785,7 +2785,7 @@
       {action:'rotateRight',label:'右回',x:actionX+action.rotateWidth+action.gap+action.dropWidth+action.gap,y:action.y,width:action.rotateWidth,height:action.height,zone:'core'}
     ];
     if(!groups.size&&!releaseWindow) return [...move,...core];
-    const bomb=TOUCH_LAYOUT.bomb, buildTouch=PLAY_MODE==='build', bombWidth=buildTouch?280:bomb.width, bombX=buildTouch?900:64, bombY=buildTouch?696:NEXT_COUNT===8?748:700;
+    const bomb=TOUCH_LAYOUT.bomb, bombWidth=buildTouch?280:bomb.width, bombX=buildTouch?900:72, bombY=buildTouch?684:NEXT_COUNT===8?774:732;
     const bombButtons=[{action:'reserve',label:'えらぶ',x:bombX,y:bombY,width:bombWidth,height:bomb.height,zone:'bomb'}];
     if(releaseWindow) bombButtons.push({action:'confirm',label:releaseWindow.armed?'予約中':'予約',x:bombX+bombWidth+bomb.gap,y:bombY,width:bombWidth,height:bomb.height,zone:'bomb',emphasis:true});
     return [...move,...bombButtons,...core];
@@ -3144,8 +3144,13 @@
     if(performance.now()<onlineAttackFlashUntil) { ctx.strokeStyle='#fff1a8'; ctx.lineWidth=4; rr(x+2,y+2,w-4,h-4,14); ctx.stroke(); }
   }
   function drawStats() {
-    const x=GAME_UI.rightX, y=590, w=GAME_UI.rightW;
-    panel(x,y,w,195,'得点'); text(String(score).padStart(8,'0'),x+34,puzzleState?y+70:y+82,52,'#ffe18a','left','800');
+    const compactTouchStats=touchControlsVisible()&&(!!releaseWindow||(PLAY_MODE==='build'&&groups.size>0)), x=GAME_UI.rightX, y=580, w=GAME_UI.rightW;
+    panel(x,y,w,compactTouchStats?94:190,'得点'); text(String(score).padStart(8,'0'),x+34,compactTouchStats?y+51:(puzzleState?y+70:y+82),compactTouchStats?42:52,'#ffe18a','left','800');
+    if(compactTouchStats) {
+      const selected=releaseTargetGroup(), color=selected?colorById(board[selected.cells[0][1]][selected.cells[0][0]].color).name:'ボム';
+      text(`${color}を えらんで　予約`,x+w-34,y+51,28,releaseWindow?.armed?'#a8ffd0':'#d9f7ff','right','900');
+      return;
+    }
     if(puzzleState) {
       text(`目標 ${ACTIVE_PUZZLE.goal.text}　残り ${Math.max(0,puzzleState.turnLimit-turn)} 手`,x+34,y+114,24,'#b9eaff','left','800'); text('I ヒント',x+w-30,y+114,24,'#ffe49b','right','800');
     } else if(!releaseWindow) {
@@ -3562,7 +3567,7 @@
       text(`最終得点　${score.toLocaleString()}`,800,490,28,'#ffe49b','center','800');
       text(`${replayFrames.length} フレーム　/　${replayFrames.at(-1).atMs||0} ms`,800,535,24,'#a9d8e4','center','700');
     }
-    if(phase==='trainingIntro') { ctx.fillStyle='rgba(3,10,17,.88)'; ctx.fillRect(0,0,W,H); panel(330,190,940,470,'はじめてコース　3問で遊び方が分かる'); text('読むだけではなく、実際に動かして覚えよう。',800,300,33,'#d9f7ff','center','900'); const steps=[['1','ボムを作る'],['2','えらんで ばくはつ'],['3','つないで 行を消す']]; steps.forEach((step,index)=>{ const x=400+index*270; ctx.fillStyle='#102938'; rr(x,360,230,105,16); text(step[0],x+38,402,34,'#ffe18a','center','900'); text(step[1],x+118,402,22,'#d9f7ff','center','800'); }); text('決定ではじめる　/　キャンセルでいつものゲームへ',800,570,27,'#ffe18a','center','800'); return; }
+    if(phase==='trainingIntro') { ctx.fillStyle='rgba(3,10,17,.97)'; ctx.fillRect(0,0,W,H); panel(330,190,940,470,'はじめてコース　3問で遊び方が分かる'); text('読むだけではなく、実際に動かして覚えよう。',800,300,33,'#d9f7ff','center','900'); const steps=[['1','ボムを作る'],['2','えらんで ばくはつ'],['3','つないで 1行消す']]; steps.forEach((step,index)=>{ const x=390+index*280; ctx.fillStyle='#102938'; rr(x,360,260,105,16); text(step[0],x+28,388,26,'#ffe18a','center','900'); text(step[1],x+130,425,22,'#d9f7ff','center','800'); }); text('決定ではじめる　/　キャンセルでいつものゲームへ',800,570,27,'#ffe18a','center','800'); return; }
     if(phase==='title') { drawTitleScreen(); if(REPLAY_IMPORT_ERROR) text(`REPLAY REJECTED: ${REPLAY_IMPORT_ERROR}`,800,830,20,'#ff9aa8','center','800'); return; }
     if(phase==='creatorHub') { drawCreatorHub(); return; }
     if(phase==='creatorLibrary') { drawCreatorLibrary(); return; }
@@ -3714,7 +3719,8 @@
     let el=document.getElementById('pwa-update-notice');
     if(!el){
       el=document.createElement('div'); el.id='pwa-update-notice'; el.setAttribute('role','status'); el.setAttribute('aria-live','polite');
-      el.style.cssText='position:fixed;left:50%;bottom:20px;z-index:100000;transform:translateX(-50%);max-width:min(92vw,680px);padding:14px 22px;border:2px solid #79d8ff;border-radius:14px;background:#0d2130;color:#effbff;text-align:center;font:800 24px/1.35 "Yu Gothic UI","Meiryo",sans-serif;box-shadow:0 14px 44px rgba(0,0,0,.5)';
+      // Keep update feedback in the unused header strip: a bottom toast hides the touch controls.
+      el.style.cssText='position:fixed;left:50%;top:14px;z-index:100000;transform:translateX(-50%);max-width:min(92vw,680px);padding:10px 20px;border:2px solid #79d8ff;border-radius:14px;background:#0d2130;color:#effbff;text-align:center;font:800 22px/1.35 "Yu Gothic UI","Meiryo",sans-serif;box-shadow:0 14px 44px rgba(0,0,0,.5)';
       document.body.appendChild(el);
     }
     el.textContent=message;
