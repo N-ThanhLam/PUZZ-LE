@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-4">
+<meta name="puzzle-build" content="pwa-20260715-5">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -29,6 +29,36 @@
     document.documentElement.dataset.phoneCanvasH=String(phoneCanvasH);
     document.documentElement.style.setProperty('--phone-aspect',String(900/phoneCanvasH));
   }
+  let portraitNavigationPending=false;
+  const lockPortrait=()=>{
+    if(!phone) return Promise.resolve();
+    try { return Promise.resolve(window.screen?.orientation?.lock?.('portrait-primary')).catch(()=>{}); }
+    catch(_) { return Promise.resolve(); }
+  };
+  const navigationTarget=value=>{
+    const target=new URL(String(value),location.href);
+    if(target.origin===location.origin&&forcedPhone&&!target.searchParams.has('phone')) target.searchParams.set('phone','1');
+    if(target.origin===location.origin&&query.get('desktop')==='1'&&!target.searchParams.has('desktop')) target.searchParams.set('desktop','1');
+    return target.href;
+  };
+  const commitNavigation=(value,replace=false)=>{
+    const target=navigationTarget(value);
+    if(!phone) { if(replace) location.replace(target); else location.assign(target); return; }
+    if(portraitNavigationPending) return;
+    portraitNavigationPending=true;
+    document.documentElement.dataset.phoneNavigating='1';
+    const commit=()=>{ if(replace) location.replace(target); else location.assign(target); };
+    Promise.race([lockPortrait(),new Promise(resolve=>setTimeout(resolve,70))]).finally(commit);
+  };
+  const reloadPortrait=()=>{
+    if(!phone) { location.reload(); return; }
+    if(portraitNavigationPending) return;
+    portraitNavigationPending=true;
+    document.documentElement.dataset.phoneNavigating='1';
+    Promise.race([lockPortrait(),new Promise(resolve=>setTimeout(resolve,70))]).finally(()=>location.reload());
+  };
+  window.PUZZLE_PHONE_PORTRAIT=Object.freeze({phone,lock:lockPortrait,navigate:commitNavigation,reload:reloadPortrait});
+  if(phone) lockPortrait();
   const state={kind:'',width:0,height:0,key:''};
   const namePrefix='puzzle-le-viewport:';
   const storageKey=kind=>{
@@ -2234,7 +2264,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     return {phase,score,turn,board:encodeReplayBoard(board),active:active?{type:active.type,colors:[...active.colors],rotation:active.rotation,x:active.x,y:active.y}:null,next:nextQueue.slice(0,NEXT_COUNT),bag:[...bag],bombState,release,selectedGroup,pendingPressure,incomingAttacks,outgoingAttacks,lockDeadline,gravityAt:p2pClockActive?gravityAt:null,clockMs:p2pClockActive?p2pClockMs:null,stats:{...runStats}};
   }
   function onlineClientDigest() { let hash=2166136261; const value=JSON.stringify(onlineDigestPayload()); for(let index=0;index<value.length;index++) { hash^=value.charCodeAt(index); hash=Math.imul(hash,16777619); } return (hash>>>0).toString(16).padStart(8,'0'); }
-  function launchOnlineMatch() { const mine=onlineRoom?.players?.find(player=>player.id===onlineGuestId()); if(!onlineRoom?.match||!mine) return; const base=location.href.split('?')[0], seed=`${onlineRoom.match.seed}-seat-${mine.seat}`; location.href=`${base}?mode=pvp&seed=${encodeURIComponent(seed)}&room=${encodeURIComponent(onlineRoom.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}&online=1&seat=${mine.seat}`; }
+  function launchOnlineMatch() { const mine=onlineRoom?.players?.find(player=>player.id===onlineGuestId()); if(!onlineRoom?.match||!mine) return; const base=location.href.split('?')[0], seed=`${onlineRoom.match.seed}-seat-${mine.seat}`; navigateApp(`${base}?mode=pvp&seed=${encodeURIComponent(seed)}&room=${encodeURIComponent(onlineRoom.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}&online=1&seat=${mine.seat}`); }
   function onlineAttackLabel(attack) { return attack?.kind==='pressure'?`圧力 +${attack.amount}`:`植物の種 ×${attack?.amount||1}`; }
   function rememberOnlineAttack(feed, attack) { feed.unshift({...attack,atTurn:turn}); feed.splice(3); }
   function p2pVerifyAuthority(event) { if(!event.authority) return true; const matches=onlineClientDigest()===event.authority.digest; if(!matches) { onlineDesync=true; onlineError='盤面をそろえ直しています'; say('盤面をそろえ直しています',1600); } return matches; }
@@ -2288,7 +2318,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
   }
   function p2pClearTimers() { clearTimeout(P2P.reconnectTimer); P2P.reconnectTimer=null; clearTimeout(P2P.persistTimer); P2P.persistTimer=null; clearTimeout(P2P.syncTimer); P2P.syncTimer=null; clearTimeout(P2P.repairTimer); P2P.repairTimer=null; clearInterval(P2P.heartbeatTimer); P2P.heartbeatTimer=null; p2pStopGravityClock(false); }
   function p2pDestroyNetwork(keepAuthority=false) { p2pClearTimers(); P2P.intentional=true; P2P.generation++; P2P.resumeInProgress=false; try { P2P.conn?.close(); } catch(_) {} try { P2P.peer?.destroy(); } catch(_) {} P2P.conn=null; P2P.peer=null; if(!keepAuthority) { for(const engine of P2P.engines) try { engine.iframe.remove(); } catch(_) {} P2P.engines=[]; } }
-  function p2pLeave(toTitle=true) { if(P2P.conn?.open) p2pSafeSend({type:P2P.role==='host'?'host_left':'guest_left'}); if(P2P.role==='host'&&P2P.roomId) try { localStorage.removeItem(p2pStorageKey()); } catch(_) {} p2pDestroyNetwork(); P2P.role=''; P2P.roomCode=''; onlineRoom=null; onlineOpponentState=null; if(toTitle) location.href=location.pathname; }
+  function p2pLeave(toTitle=true) { if(P2P.conn?.open) p2pSafeSend({type:P2P.role==='host'?'host_left':'guest_left'}); if(P2P.role==='host'&&P2P.roomId) try { localStorage.removeItem(p2pStorageKey()); } catch(_) {} p2pDestroyNetwork(); P2P.role=''; P2P.roomCode=''; onlineRoom=null; onlineOpponentState=null; if(toTitle) navigateApp(location.pathname); }
   function p2pOpenCode(action) { P2P.lobbyAction=action; p2pCodeTitle.textContent=action==='host'?'部屋の合言葉':'合言葉で入る'; p2pCodeHelp.textContent=action==='host'?'好きな言葉を決めて友だちに伝えます。':'友だちと同じ言葉を入れてください。'; p2pCodeInput.value=action==='host'?p2pRandomCode():''; p2pCodeOverlay.hidden=false; setTimeout(()=>{p2pCodeInput.focus();p2pCodeInput.select();},0); }
   function p2pCloseCode() { p2pCodeOverlay.hidden=true; canvas.focus({preventScroll:true}); }
   p2pCodeForm.addEventListener('submit',event=>{ event.preventDefault(); const code=p2pNormalizeCode(p2pCodeInput.value); if(code.length<3) { p2pCodeHelp.textContent='3文字以上で入れてください。'; return; } p2pCloseCode(); if(P2P.lobbyAction==='host') p2pHostLobby(code); else p2pJoinLobby(code); });
@@ -2324,7 +2354,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     const common={type:'match_start',protocol:P2P_PROTOCOL_VERSION,roomCode:P2P.roomCode,seed,hostId:P2P.localId,guestId:P2P.remoteId,token:P2P.remoteToken}, generation=P2P.generation; p2pPersistHost();
     p2pSafeSend({...common,role:'guest',seat:1}); setTimeout(()=>{ if(generation===P2P.generation) p2pNavigateMatch({...common,role:'host',seat:0}); },260);
   }
-  function p2pNavigateMatch(info) { const params=new URLSearchParams({mode:'pvp',seed:info.seed,p2p:'1',p2pRole:info.role,p2pRoom:info.roomCode,p2pSeed:info.seed,p2pToken:info.token||''}); if(QUERY.get('phone')==='1') params.set('phone','1'); if(QUERY.get('desktop')==='1') params.set('desktop','1'); location.href=`${location.pathname}?${params}`; }
+  function p2pNavigateMatch(info) { const params=new URLSearchParams({mode:'pvp',seed:info.seed,p2p:'1',p2pRole:info.role,p2pRoom:info.roomCode,p2pSeed:info.seed,p2pToken:info.token||''}); if(QUERY.get('phone')==='1') params.set('phone','1'); if(QUERY.get('desktop')==='1') params.set('desktop','1'); navigateApp(`${location.pathname}?${params}`); }
   function p2pCopyInvite() { if(!P2P.roomCode) return; const message=`PUZZ-LE フレンド対戦\n合言葉: ${P2P.roomCode}\n${location.href.split('?')[0]}`; navigator.clipboard?.writeText(message).then(()=>say('合言葉をコピーしました',1500)).catch(()=>say(`合言葉 ${P2P.roomCode}`,2200)); }
   function p2pResetVisibleForSync() {
     resetGame(); phase='falling'; toast=''; toastUntil=0; startP2PBoardClock();
@@ -2531,8 +2561,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
 
   function hasSeenTutorial() { return localStorage.getItem('puzzle-le-ranked-tutorial-v1') === 'seen'; }
   function hasSeenTerrainTutorial() { return localStorage.getItem('puzzle-le-terrain-tutorial-v1') === 'seen'; }
-  function startTrainingCourse(step=0) { const id=TRAINING_COURSE[step]; location.href=`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(id)}&course=1&courseStep=${step}`; }
-  function finishTrainingCourse() { try { localStorage.setItem('puzzle-le-ranked-tutorial-v1','seen'); } catch(_) {} location.href=location.pathname; }
+  function startTrainingCourse(step=0) { const id=TRAINING_COURSE[step]; navigateApp(`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(id)}&course=1&courseStep=${step}`); }
+  function finishTrainingCourse() { try { localStorage.setItem('puzzle-le-ranked-tutorial-v1','seen'); } catch(_) {} navigateApp(location.pathname); }
   function groupColor(group) { const cell=group?.cells?.[0]; return cell ? board[cell[1]]?.[cell[0]]?.color : null; }
   function trainingPrompt() {
     if(!TRAINING_ACTIVE || phase!=='falling') return '';
@@ -2637,7 +2667,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
   function verifiedCustomPuzzles() { return readCustomPuzzles().filter(puzzle=>!!customPuzzleVerification(puzzle.id)); }
   function openCreatorCourseSelect() { creatorCourseIndex=0; creatorCourseIds=[]; phase='creatorCourseSelect'; }
   function creatorCourseUrl(ids,index=0,courseData='') { const puzzleId=ids[index], embedded=courseData?`&courseData=${encodeURIComponent(courseData)}`:''; return `${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(puzzleId)}&course=${ids.map(encodeURIComponent).join(',')}${embedded}`; }
-  function startCreatorCourse() { if(creatorCourseIds.length<2) { say('合格済みの問題を2問以上えらんでください',2000); return; } location.href=creatorCourseUrl(creatorCourseIds); }
+  function startCreatorCourse() { if(creatorCourseIds.length<2) { say('合格済みの問題を2問以上えらんでください',2000); return; } navigateApp(creatorCourseUrl(creatorCourseIds)); }
   function shareCreatorCourse() { if(creatorCourseIds.length<2) { say('共有するには合格済みの問題を2問以上えらんでください',2200); return; } const puzzles=creatorCourseIds.map(id=>PUZZLES[id]).filter(Boolean), data=JSON.stringify({version:1,puzzles}), url=`${location.origin}${creatorCourseUrl(creatorCourseIds,0,data)}`; if(url.length>MAX_REPLAY_QUERY_CHARS) { say('解き方を含むコースリンクが大きすぎます',2200); return; } if(!navigator.clipboard?.writeText) { say('この環境ではコピーできません',1800); return; } navigator.clipboard.writeText(url).then(()=>say('自作コースのリンクをコピーしました',1800)).catch(()=>say('コピーできませんでした',1800)); }
   const EDITOR_GOALS = [{type:'release',minimum:1,text:'ボムを1つ爆発'},{type:'chain',minimum:2,text:'2つをつないで爆発'},{type:'chain',minimum:3,text:'3つをつないで爆発'}];
   function openPuzzleEditor(existing=null) { editorBoard=Array.from({length:20},()=>Array(10).fill(null)); for(const block of existing?.initialBoard?.blocks||[]) editorBoard[block.y][block.x]=block.color; editorX=4; editorY=15; editorColorIndex=0; editorQueueColors=[0,1,2].map(index=>existing?.queue?.[index]?.colors?.[0]||CUSTOM_PUZZLE_COLORS[index]); editorQueueIndex=0; editorGoalIndex=Math.max(0,EDITOR_GOALS.findIndex(goal=>goal.type===existing?.goal?.type&&goal.minimum===existing?.goal?.minimum)); editorId=existing?.id||`custom_${Date.now()}`; editorName=existing?.name||`自作パズル ${readCustomPuzzles().length+1}`; const meta=customPuzzleMeta(existing); editorAuthor=meta.author; editorDescription=meta.description; editorTags=meta.tags; editorVisibility=meta.visibility; editorAnalysis=existing?.analysis||null; phase='puzzleEditor'; }
@@ -2726,8 +2756,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
   function clearCustomPuzzleVerification(id) { const records=customPuzzleVerifications(); delete records[id]; try { localStorage.setItem(CUSTOM_PUZZLE_VERIFICATION_STORAGE,JSON.stringify(records)); } catch(_) {} }
   function saveCustomPuzzleSolution(id,replay) { const list=readCustomPuzzles(), index=list.findIndex(puzzle=>puzzle.id===id); if(index<0) return; const puzzle={...list[index],solution:{...list[index].solution,replay}}; list[index]=puzzle; try { localStorage.setItem(CUSTOM_PUZZLE_STORAGE,JSON.stringify(list)); } catch(_) {} PUZZLES[id]=puzzle; }
   function customPuzzleHasSolution(puzzle) { return Array.isArray(puzzle?.solution?.replay?.frames) && puzzle.solution.replay.frames.length>1; }
-  function launchCustomSolution() { const puzzle=ACTIVE_PUZZLE, replay=puzzle?.solution?.replay; if(!puzzle || !customPuzzleHasSolution(puzzle)) { say('この問題には解き方がありません',1800); return; } const url=`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}&replay=${encodeURIComponent(JSON.stringify(replay))}`; if(url.length>MAX_REPLAY_QUERY_CHARS) { say('解き方が大きすぎて再生できません',1800); return; } location.href=url; }
-  function saveEditorPuzzle(play=false) { const puzzle=editorPuzzle(); if(puzzle.initialBoard.blocks.length<4) { say('ボムになる4マス以上を置いてください',1800); return null; } const list=readCustomPuzzles(), index=list.findIndex(item=>item.id===puzzle.id); if(index>=0) list[index]=puzzle; else list.unshift(puzzle); try { localStorage.setItem(CUSTOM_PUZZLE_STORAGE,JSON.stringify(list.slice(0,24))); } catch(_) { say('保存できませんでした',1800); return null; } clearCustomPuzzleVerification(puzzle.id); PUZZLES[puzzle.id]=puzzle; if(play) location.href=`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&creatorTest=1`; else say('自作パズルを保存しました。共有にはテスト合格が必要です',1800); return puzzle; }
+  function launchCustomSolution() { const puzzle=ACTIVE_PUZZLE, replay=puzzle?.solution?.replay; if(!puzzle || !customPuzzleHasSolution(puzzle)) { say('この問題には解き方がありません',1800); return; } const url=`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}&replay=${encodeURIComponent(JSON.stringify(replay))}`; if(url.length>MAX_REPLAY_QUERY_CHARS) { say('解き方が大きすぎて再生できません',1800); return; } navigateApp(url); }
+  function saveEditorPuzzle(play=false) { const puzzle=editorPuzzle(); if(puzzle.initialBoard.blocks.length<4) { say('ボムになる4マス以上を置いてください',1800); return null; } const list=readCustomPuzzles(), index=list.findIndex(item=>item.id===puzzle.id); if(index>=0) list[index]=puzzle; else list.unshift(puzzle); try { localStorage.setItem(CUSTOM_PUZZLE_STORAGE,JSON.stringify(list.slice(0,24))); } catch(_) { say('保存できませんでした',1800); return null; } clearCustomPuzzleVerification(puzzle.id); PUZZLES[puzzle.id]=puzzle; if(play) navigateApp(`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&creatorTest=1`); else say('自作パズルを保存しました。共有にはテスト合格が必要です',1800); return puzzle; }
   function shareEditorPuzzle() { const puzzle=saveEditorPuzzle(false); if(puzzle) say(customPuzzleMeta(puzzle).visibility==='link'?'保存しました。テスト合格後に作品庫からリンクを作れます':'保存しました。M の作品情報でリンク公開を選べます',2400); }
   function shareCustomPuzzle(puzzle) { if(customPuzzleMeta(puzzle).visibility!=='link') { say('作品情報で「リンクで渡せる」を選んでください',2200); return; } if(!customPuzzleVerification(puzzle.id)) { say('先にテストでクリアするとリンクを渡せます',2000); return; } const url=`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}`; if(url.length>MAX_REPLAY_QUERY_CHARS) { say('解き方を含むリンクが大きすぎます',2000); return; } if(!navigator.clipboard?.writeText) { say('この環境ではコピーできません',1800); return; } navigator.clipboard.writeText(url).then(()=>say('テスト合格済みのリンクをコピーしました',1800)).catch(()=>say('コピーできませんでした',1800)); }
   function deleteCustomPuzzle(puzzle) { const list=readCustomPuzzles().filter(item=>item.id!==puzzle.id); try { localStorage.setItem(CUSTOM_PUZZLE_STORAGE,JSON.stringify(list)); } catch(_) {} clearCustomPuzzleVerification(puzzle.id); delete PUZZLES[puzzle.id]; creatorLibraryIndex=Math.max(0,Math.min(creatorLibraryIndex,list.length-1)); say('自作パズルを消しました',1500); }
@@ -2763,7 +2793,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
   }
   async function launchCommunityPuzzle(summary) {
     if(!summary) return; communityStatus='loading'; communityError='問題を読み込んでいます…';
-    try { const detail=await communityRequest(`/api/community/${encodeURIComponent(summary.id)}`), puzzle=detail.puzzle; const url=`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}&communityId=${encodeURIComponent(detail.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`; location.href=url; }
+    try { const detail=await communityRequest(`/api/community/${encodeURIComponent(summary.id)}`), puzzle=detail.puzzle; const url=`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}&communityId=${encodeURIComponent(detail.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`; navigateApp(url); }
     catch(error) { communityStatus='error'; communityError=communityErrorText(error); }
   }
   function openCommunityDaily() { if(communityDailyStatus==='ready'&&communityDaily) { phase='communityDaily'; communityError=''; } else { communityNotice=communityError||'公開問題が3問そろうと始まります'; } }
@@ -2771,7 +2801,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
   function closeCommunityCleanup() { phase=communityCleanupReturnPhase==='puzzleComplete'?'puzzleComplete':'communityDaily'; }
   async function launchCommunityDailyPuzzle(summary,index) {
     if(!summary) return; communityDailyStatus='loading';
-    try { const detail=await communityRequest(`/api/community/${encodeURIComponent(summary.id)}`), puzzle=detail.puzzle; location.href=`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}&communityId=${encodeURIComponent(detail.id)}&communityDaily=${encodeURIComponent(communityDaily?.date||JST_TODAY)}&communityDailyIndex=${index}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`; }
+    try { const detail=await communityRequest(`/api/community/${encodeURIComponent(summary.id)}`), puzzle=detail.puzzle; navigateApp(`${location.href.split('?')[0]}?mode=puzzle&puzzle=${encodeURIComponent(puzzle.id)}&custom=${encodeURIComponent(JSON.stringify(puzzle))}&communityId=${encodeURIComponent(detail.id)}&communityDaily=${encodeURIComponent(communityDaily?.date||JST_TODAY)}&communityDailyIndex=${index}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`); }
     catch(error) { communityDailyStatus='error'; communityError=communityErrorText(error); }
   }
   async function startOrResumeCommunityDaily() {
@@ -2786,7 +2816,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     communityClearPromise=Promise.all(requests).then(results=>{ if(COMMUNITY_DAILY_DATE) communityDailyResult=results[1]; return results; }).catch(error=>{ communityError=communityErrorText(error); return null; }); return communityClearPromise;
   }
   async function advanceCommunityDaily() {
-    try { const posted=await communityClearPromise; if(!posted) return; const challenge=communityDailyResult||await communityRequest(`/api/community/daily?date=${encodeURIComponent(COMMUNITY_DAILY_DATE)}&guestId=${encodeURIComponent(onlineGuestId())}`); if(challenge.progress.completed) { location.href=communityReturnUrl(true); return; } communityDaily=challenge; await launchCommunityDailyPuzzle(challenge.puzzles[challenge.progress.index],challenge.progress.index); }
+    try { const posted=await communityClearPromise; if(!posted) return; const challenge=communityDailyResult||await communityRequest(`/api/community/daily?date=${encodeURIComponent(COMMUNITY_DAILY_DATE)}&guestId=${encodeURIComponent(onlineGuestId())}`); if(challenge.progress.completed) { navigateApp(communityReturnUrl(true)); return; } communityDaily=challenge; await launchCommunityDailyPuzzle(challenge.puzzles[challenge.progress.index],challenge.progress.index); }
     catch(error) { communityError=communityErrorText(error); say(communityError,2400); }
   }
   async function loadDevCommunityDailyResult(complete) {
@@ -2794,13 +2824,13 @@ if(document.documentElement.dataset.phoneUi==='1') {
     catch(error) { communityError=communityErrorText(error); phase='puzzleComplete'; active=null; }
   }
   async function rateCommunityPuzzle(value) {
-    if(!COMMUNITY_PUZZLE_ID||!value) { location.href=communityReturnUrl(); return; }
-    try { await communityClearPromise; await communityRequest(`/api/community/${encodeURIComponent(COMMUNITY_PUZZLE_ID)}/rating`,{method:'POST',body:JSON.stringify({guestId:onlineGuestId(),value})}); location.href=communityReturnUrl(); }
+    if(!COMMUNITY_PUZZLE_ID||!value) { navigateApp(communityReturnUrl()); return; }
+    try { await communityClearPromise; await communityRequest(`/api/community/${encodeURIComponent(COMMUNITY_PUZZLE_ID)}/rating`,{method:'POST',body:JSON.stringify({guestId:onlineGuestId(),value})}); navigateApp(communityReturnUrl()); }
     catch(error) { communityError=communityErrorText(error); say(communityError,2400); }
   }
   async function launchCommunitySolution() {
     if(!COMMUNITY_PUZZLE_ID) return;
-    try { await communityClearPromise; const data=await communityRequest(`/api/community/${encodeURIComponent(COMMUNITY_PUZZLE_ID)}/solution?guestId=${encodeURIComponent(onlineGuestId())}`), replay=data.replay, raw=JSON.stringify(replay); if(raw.length>MAX_REPLAY_QUERY_CHARS) throw Object.assign(new Error('解答が大きすぎます'),{code:'TOO_LARGE'}); location.href=`${location.href.split('?')[0]}?mode=puzzle&replay=${encodeURIComponent(raw)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`; }
+    try { await communityClearPromise; const data=await communityRequest(`/api/community/${encodeURIComponent(COMMUNITY_PUZZLE_ID)}/solution?guestId=${encodeURIComponent(onlineGuestId())}`), replay=data.replay, raw=JSON.stringify(replay); if(raw.length>MAX_REPLAY_QUERY_CHARS) throw Object.assign(new Error('解答が大きすぎます'),{code:'TOO_LARGE'}); navigateApp(`${location.href.split('?')[0]}?mode=puzzle&replay=${encodeURIComponent(raw)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`); }
     catch(error) { communityError=error.code==='TOO_LARGE'?'解答が大きすぎて再生できません':communityErrorText(error); say(communityError,2400); }
   }
   async function submitCommunityReport(reason) {
@@ -2846,11 +2876,11 @@ if(document.documentElement.dataset.phoneUi==='1') {
         // Returning to the title preserves the puzzle URL, so never let that
         // stale query bypass the library and reopen the previous board.
         if(chosen==='puzzle') { puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; puzzleMenuIndex=0; phase='puzzleSelect'; return; }
-        if(chosen==='build') { if(PLAY_MODE==='build') beginDraft(); else location.href=`${location.pathname}?mode=build`; return; }
-        if(chosen==='rogue') { if(PLAY_MODE==='rogue') beginRogueRun(); else location.href=`${location.pathname}?mode=rogue`; return; }
+        if(chosen==='build') { if(PLAY_MODE==='build') beginDraft(); else navigateApp(`${location.pathname}?mode=build`); return; }
+        if(chosen==='rogue') { if(PLAY_MODE==='rogue') beginRogueRun(); else navigateApp(`${location.pathname}?mode=rogue`); return; }
         if(chosen==='online') { openOnlineLobby(); return; }
         if(chosen==='editor') { openCreatorHub(); return; }
-        if(chosen!==PLAY_MODE) { location.href=`${location.pathname}?mode=${chosen}`; return; }
+        if(chosen!==PLAY_MODE) { navigateApp(`${location.pathname}?mode=${chosen}`); return; }
         if(chosen==='ranked'&&!hasSeenTutorial()) { phase='trainingIntro'; return; }
         if(TERRAIN_ENABLED&&!hasSeenTerrainTutorial()) { tutorialOpen=true; tutorialStep=0; } else { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); }
       }
@@ -2858,7 +2888,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     }
     if(phase==='puzzleEditor') { if(name==='left') { editorX=Math.max(0,editorX-1); return; } if(name==='right') { editorX=Math.min(9,editorX+1); return; } if(name==='up'||name==='rotateLeft'||name==='rotateRight') { editorY=Math.max(0,editorY-1); return; } if(name==='down') { editorY=Math.min(19,editorY+1); return; } if(name==='hint') { editorColorIndex=(editorColorIndex+1)%CUSTOM_PUZZLE_COLORS.length; return; } if(name==='settings') { editorQueueColors[editorQueueIndex]=CUSTOM_PUZZLE_COLORS[(CUSTOM_PUZZLE_COLORS.indexOf(editorQueueColors[editorQueueIndex])+1)%CUSTOM_PUZZLE_COLORS.length]; editorAnalysis=null; return; } if(name==='confirm') { editorBoard[editorY][editorX]=CUSTOM_PUZZLE_COLORS[editorColorIndex]; editorAnalysis=null; return; } if(name==='reserve') { editorBoard[editorY][editorX]=null; editorAnalysis=null; return; } if(name==='drop') { saveEditorPuzzle(true); return; } if(name==='pause') { saveEditorPuzzle(false); return; } if(name==='cancel') { openCreatorHub(); return; } return; }
     if(phase==='creatorHub') { const choices=['new','library','course','community']; if(name==='left'||name==='right'||name==='rotateLeft'||name==='rotateRight') { creatorMenuIndex^=1; return; } if(name==='up'||name==='down') { creatorMenuIndex=(creatorMenuIndex+2)%4; return; } if(['confirm','start'].includes(name)) { if(choices[creatorMenuIndex]==='new') openPuzzleEditor(); else if(choices[creatorMenuIndex]==='library') { creatorLibraryIndex=0; phase='creatorLibrary'; } else if(choices[creatorMenuIndex]==='course') openCreatorCourseSelect(); else openCommunityBrowser(); return; } if(name==='cancel'||name==='pause') { phase='title'; return; } return; }
-    if(phase==='creatorLibrary') { const puzzles=readCustomPuzzles(); if(!puzzles.length) { if(['confirm','start'].includes(name)) openPuzzleEditor(); else if(['cancel','pause'].includes(name)) openCreatorHub(); return; } if(name==='left'||name==='rotateLeft'||name==='up') { creatorLibraryIndex=(creatorLibraryIndex+puzzles.length-1)%puzzles.length; return; } if(name==='right'||name==='rotateRight'||name==='down') { creatorLibraryIndex=(creatorLibraryIndex+1)%puzzles.length; return; } const selected=puzzles[creatorLibraryIndex]; if(['confirm','start'].includes(name)) { location.href=`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(selected.id)}&creatorTest=1`; return; } if(name==='reserve') { openPuzzleEditor(selected); return; } if(name==='drop') { publishCommunityPuzzle(selected); return; } if(name==='share') { shareCustomPuzzle(selected); return; } if(name==='pause') { deleteCustomPuzzle(selected); return; } if(name==='cancel') { openCreatorHub(); return; } return; }
+    if(phase==='creatorLibrary') { const puzzles=readCustomPuzzles(); if(!puzzles.length) { if(['confirm','start'].includes(name)) openPuzzleEditor(); else if(['cancel','pause'].includes(name)) openCreatorHub(); return; } if(name==='left'||name==='rotateLeft'||name==='up') { creatorLibraryIndex=(creatorLibraryIndex+puzzles.length-1)%puzzles.length; return; } if(name==='right'||name==='rotateRight'||name==='down') { creatorLibraryIndex=(creatorLibraryIndex+1)%puzzles.length; return; } const selected=puzzles[creatorLibraryIndex]; if(['confirm','start'].includes(name)) { navigateApp(`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(selected.id)}&creatorTest=1`); return; } if(name==='reserve') { openPuzzleEditor(selected); return; } if(name==='drop') { publishCommunityPuzzle(selected); return; } if(name==='share') { shareCustomPuzzle(selected); return; } if(name==='pause') { deleteCustomPuzzle(selected); return; } if(name==='cancel') { openCreatorHub(); return; } return; }
     if(phase==='communityBrowse') { const count=communityPuzzles.length; if(name==='reserve') { cycleCommunityTag(1); return; } if(name==='left'||name==='rotateLeft') { if(!communityDailyFocus&&communityIndex%2===1) communityIndex--; return; } if(name==='right'||name==='rotateRight') { if(!communityDailyFocus&&communityIndex%2===0&&communityIndex+1<count) communityIndex++; return; } if(name==='up') { if(communityDailyFocus) return; if(communityIndex<=1) communityDailyFocus=true; else communityIndex-=2; return; } if(name==='down') { if(communityDailyFocus) { communityDailyFocus=false; communityIndex=0; } else communityIndex=Math.min(Math.max(0,count-1),communityIndex+2); return; } if(['confirm','start'].includes(name)) { if(communityDailyFocus) openCommunityDaily(); else launchCommunityPuzzle(communityPuzzles[communityIndex]); return; } if(name==='pause'&&count&&!communityDailyFocus) { communityReportIndex=0; phase='communityReport'; return; } if(name==='cancel') { openCreatorHub(); return; } return; }
     if(phase==='communityDaily') { if(name==='reserve') { openCommunityCleanup(communityDaily); return; } if(['confirm','start'].includes(name)) { startOrResumeCommunityDaily(); return; } if(name==='cancel'||name==='pause') { phase='communityBrowse'; communityDailyFocus=true; return; } return; }
     if(phase==='communityCleanup') { if(['confirm','start','reserve','cancel','pause'].includes(name)) closeCommunityCleanup(); return; }
@@ -2876,7 +2906,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
       if(['confirm','start'].includes(name)) { chooseDraftCard(); return; }
       return;
     }
-    if(phase==='rogueHub') { const choices=rogueCheckpoint()?['continue','new','history','library']:['new','history','library']; if(name==='left'||name==='rotateLeft'||name==='up') { rogueHubIndex=(rogueHubIndex+choices.length-1)%choices.length; return; } if(name==='right'||name==='rotateRight'||name==='down') { rogueHubIndex=(rogueHubIndex+1)%choices.length; return; } if(name==='cancel'||name==='pause') { phase='title'; return; } if(['confirm','start'].includes(name)) { const choice=choices[rogueHubIndex]; if(choice==='continue') { const save=rogueCheckpoint(); if(save?.seed&&save.seed!==RUN_SEED) location.href=`${location.pathname}?mode=rogue&seed=${encodeURIComponent(save.seed)}&resume=1`; else resumeRogueRun(); } else if(choice==='new') startNewRogueRun(); else if(choice==='history') { rogueHistoryIndex=0; phase='rogueHistory'; } else { cardLibraryIndex=0; phase='cardLibrary'; } return; } return; }
+    if(phase==='rogueHub') { const choices=rogueCheckpoint()?['continue','new','history','library']:['new','history','library']; if(name==='left'||name==='rotateLeft'||name==='up') { rogueHubIndex=(rogueHubIndex+choices.length-1)%choices.length; return; } if(name==='right'||name==='rotateRight'||name==='down') { rogueHubIndex=(rogueHubIndex+1)%choices.length; return; } if(name==='cancel'||name==='pause') { phase='title'; return; } if(['confirm','start'].includes(name)) { const choice=choices[rogueHubIndex]; if(choice==='continue') { const save=rogueCheckpoint(); if(save?.seed&&save.seed!==RUN_SEED) navigateApp(`${location.pathname}?mode=rogue&seed=${encodeURIComponent(save.seed)}&resume=1`); else resumeRogueRun(); } else if(choice==='new') startNewRogueRun(); else if(choice==='history') { rogueHistoryIndex=0; phase='rogueHistory'; } else { cardLibraryIndex=0; phase='cardLibrary'; } return; } return; }
     if(phase==='cardLibrary') { if(name==='left'||name==='rotateLeft') { cardLibraryIndex=(cardLibraryIndex+BUILD_POOL.length-1)%BUILD_POOL.length; return; } if(name==='right'||name==='rotateRight') { cardLibraryIndex=(cardLibraryIndex+1)%BUILD_POOL.length; return; } if(name==='down') { cardLibraryIndex=(cardLibraryIndex+3)%BUILD_POOL.length; return; } if(name==='up') { cardLibraryIndex=(cardLibraryIndex+BUILD_POOL.length-3)%BUILD_POOL.length; return; } if(name==='cancel'||name==='pause'||name==='confirm'||name==='start') { phase='rogueHub'; return; } return; }
     if(phase==='rogueHistory') { const history=rogueHistory(); if(name==='left'||name==='rotateLeft'||name==='up') { rogueHistoryIndex=Math.max(0,rogueHistoryIndex-1); return; } if(name==='right'||name==='rotateRight'||name==='down') { rogueHistoryIndex=Math.min(Math.max(0,history.length-1),rogueHistoryIndex+1); return; } if(name==='cancel'||name==='pause'||name==='confirm'||name==='start') { phase='rogueHub'; return; } return; }
     if(phase==='rogueMap') { const routes=rogueRoutes(); if(name==='left'||name==='rotateLeft'||name==='up') { rogueRouteIndex=(rogueRouteIndex+routes.length-1)%routes.length; return; } if(name==='right'||name==='rotateRight'||name==='down') { rogueRouteIndex=(rogueRouteIndex+1)%routes.length; return; } if(name==='cancel'||name==='pause') { phase='title'; return; } if(['confirm','start'].includes(name)) startRogueEncounter(); return; }
@@ -2890,18 +2920,18 @@ if(document.documentElement.dataset.phoneUi==='1') {
       if(name==='up') { puzzleMenuIndex=(puzzleMenuIndex-2+puzzles.length)%puzzles.length; return; }
       if(name==='down') { puzzleMenuIndex=(puzzleMenuIndex+2)%puzzles.length; return; }
       if(name==='cancel'||name==='pause') { phase='title'; return; }
-      if(['confirm','start'].includes(name)) { const selected=puzzles[puzzleMenuIndex]; if(!puzzleIsUnlocked(selected,puzzles)) { say('ひとつ前の問題をクリアすると開きます',1800); return; } location.href=`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(selected.id)}`; }
+      if(['confirm','start'].includes(name)) { const selected=puzzles[puzzleMenuIndex]; if(!puzzleIsUnlocked(selected,puzzles)) { say('ひとつ前の問題をクリアすると開きます',1800); return; } navigateApp(`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(selected.id)}`); }
       return;
     }
     if(phase==='dailySelect') {
       const dates=archiveDates();
-      if(name==='reserve') { const selected=dates[dailyMenuIndex]; location.href=`${location.pathname}?mode=daily&date=${selected}&compare=1`; return; }
+      if(name==='reserve') { const selected=dates[dailyMenuIndex]; navigateApp(`${location.pathname}?mode=daily&date=${selected}&compare=1`); return; }
       if(name==='left'||name==='rotateLeft') { dailyMenuIndex=(dailyMenuIndex+dates.length-1)%dates.length; return; }
       if(name==='right'||name==='rotateRight') { dailyMenuIndex=(dailyMenuIndex+1)%dates.length; return; }
       if(name==='down') { dailyMenuIndex=Math.min(dates.length-1,dailyMenuIndex+7); return; }
       if(name==='up') { dailyMenuIndex=Math.max(0,dailyMenuIndex-7); return; }
       if(name==='cancel'||name==='pause') { phase='title'; return; }
-      if(['confirm','start'].includes(name)) location.href=`${location.pathname}?mode=daily&date=${dates[dailyMenuIndex]}`;
+      if(['confirm','start'].includes(name)) navigateApp(`${location.pathname}?mode=daily&date=${dates[dailyMenuIndex]}`);
       return;
     }
     if(phase==='compare') {
@@ -2911,8 +2941,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
       return;
     }
     if(phase==='onlineResult') { if(P2P_MATCH_ENABLED) { if(['confirm','start'].includes(name)) { if(!onlineRematchRequested) { p2pRequestRematch(); say('再戦OK。相手を待っています',Infinity); } return; } if(['cancel','pause'].includes(name)) p2pLeave(true); return; } if(['confirm','start'].includes(name)) { if(!onlineRematchRequested&&onlineRoom?.id) { onlineRematchRequested=true; onlineSend('rematch',{roomId:onlineRoom.id}); say('再戦OK。相手を待っています',Infinity); } return; } if(['cancel','pause'].includes(name)) closeOnlineLobby(); return; }
-    if(phase==='puzzleComplete') { if(COMMUNITY_DAILY_DATE) { if(name==='reserve') { openCommunityCleanup(communityDailyResult); return; } if(['confirm','start'].includes(name)) { advanceCommunityDaily(); return; } if(name==='cancel'||name==='pause') { location.href=communityReturnUrl(true); return; } return; } if(COMMUNITY_PUZZLE_ID) { if(name==='left'||name==='up'||name==='rotateLeft') { communityRatingIndex=(communityRatingIndex+3)%4; return; } if(name==='right'||name==='down'||name==='rotateRight') { communityRatingIndex=(communityRatingIndex+1)%4; return; } if(['confirm','start'].includes(name)) { rateCommunityPuzzle(communityRatingIndex); return; } if(name==='cancel'||name==='pause') { location.href=communityReturnUrl(); return; } return; } if(['confirm','start'].includes(name)) { if(CREATOR_TEST) { location.href=`${location.pathname}?creator=1`; return; } if(CREATOR_COURSE_INDEX>=0) { const nextIndex=CREATOR_COURSE_INDEX+1; location.href=nextIndex<CREATOR_COURSE_IDS.length?creatorCourseUrl(CREATOR_COURSE_IDS,nextIndex,CREATOR_COURSE_DATA):`${location.pathname}?creator=1`; return; } if(TRAINING_ACTIVE) { if(TRAINING_STEP<TRAINING_COURSE.length-1) startTrainingCourse(TRAINING_STEP+1); else finishTrainingCourse(); return; } resetGame(); puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; const puzzles=selectablePuzzles(), current=Math.max(0,puzzles.findIndex(puzzle=>puzzle.id===PUZZLE_ID)); puzzleMenuIndex=Math.min(puzzles.length-1,current+1); phase='puzzleSelect'; return; } if(name==='cancel') { if(CREATOR_TEST||CREATOR_COURSE_INDEX>=0) location.href=`${location.pathname}?creator=1`; else { resetGame(); phase='puzzleSelect'; } } return; }
-    if(phase==='puzzleFailed') { if(['confirm','start'].includes(name)) { resetGame(); phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); return; } if(name==='cancel'||name==='pause') { if(COMMUNITY_PUZZLE_ID) location.href=communityReturnUrl(); else if(CREATOR_TEST) location.href=`${location.pathname}?creator=1`; else { resetGame(); phase='puzzleSelect'; } } return; }
+    if(phase==='puzzleComplete') { if(COMMUNITY_DAILY_DATE) { if(name==='reserve') { openCommunityCleanup(communityDailyResult); return; } if(['confirm','start'].includes(name)) { advanceCommunityDaily(); return; } if(name==='cancel'||name==='pause') { navigateApp(communityReturnUrl(true)); return; } return; } if(COMMUNITY_PUZZLE_ID) { if(name==='left'||name==='up'||name==='rotateLeft') { communityRatingIndex=(communityRatingIndex+3)%4; return; } if(name==='right'||name==='down'||name==='rotateRight') { communityRatingIndex=(communityRatingIndex+1)%4; return; } if(['confirm','start'].includes(name)) { rateCommunityPuzzle(communityRatingIndex); return; } if(name==='cancel'||name==='pause') { navigateApp(communityReturnUrl()); return; } return; } if(['confirm','start'].includes(name)) { if(CREATOR_TEST) { navigateApp(`${location.pathname}?creator=1`); return; } if(CREATOR_COURSE_INDEX>=0) { const nextIndex=CREATOR_COURSE_INDEX+1; navigateApp(nextIndex<CREATOR_COURSE_IDS.length?creatorCourseUrl(CREATOR_COURSE_IDS,nextIndex,CREATOR_COURSE_DATA):`${location.pathname}?creator=1`); return; } if(TRAINING_ACTIVE) { if(TRAINING_STEP<TRAINING_COURSE.length-1) startTrainingCourse(TRAINING_STEP+1); else finishTrainingCourse(); return; } resetGame(); puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; const puzzles=selectablePuzzles(), current=Math.max(0,puzzles.findIndex(puzzle=>puzzle.id===PUZZLE_ID)); puzzleMenuIndex=Math.min(puzzles.length-1,current+1); phase='puzzleSelect'; return; } if(name==='cancel') { if(CREATOR_TEST||CREATOR_COURSE_INDEX>=0) navigateApp(`${location.pathname}?creator=1`); else { resetGame(); phase='puzzleSelect'; } } return; }
+    if(phase==='puzzleFailed') { if(['confirm','start'].includes(name)) { resetGame(); phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); return; } if(name==='cancel'||name==='pause') { if(COMMUNITY_PUZZLE_ID) navigateApp(communityReturnUrl()); else if(CREATOR_TEST) navigateApp(`${location.pathname}?creator=1`); else { resetGame(); phase='puzzleSelect'; } } return; }
     if(phase==='gameover') { if(ROGUE_ENABLED) { if(['confirm','start'].includes(name)) startNewRogueRun(); else if(name==='cancel'||name==='pause') { resetGame(); beginRogueRun(); } return; } if(['confirm','start'].includes(name)) resetGame(); if(name==='cancel'||name==='pause') { resetGame(); phase=PLAY_MODE==='daily'?'dailySelect':'title'; } return; }
     if(phase==='paused') {
       if(pausedFrom==='replay' && ['left','right','seekStart','seekEnd','speedDown','speedUp'].includes(name)) { handleReplayCommand(name); return; }
@@ -2998,10 +3028,10 @@ if(document.documentElement.dataset.phoneUi==='1') {
   function fullscreenElement() { return document.fullscreenElement||document.webkitFullscreenElement||null; }
   function installedFullscreenMode() { return matchMedia('(display-mode: fullscreen)').matches; }
   function installedAppMode() { return installedFullscreenMode()||matchMedia('(display-mode: standalone)').matches||navigator.standalone===true; }
+  function navigateApp(url,replace=false) { window.PUZZLE_PHONE_PORTRAIT?.navigate(url,replace); }
+  function reloadApp() { window.PUZZLE_PHONE_PORTRAIT?.reload(); }
   function lockAppOrientation() {
-    if(!PHONE_UI) return Promise.resolve();
-    try { return Promise.resolve(window.screen?.orientation?.lock?.('portrait-primary')).catch(()=>{}); }
-    catch(_) { return Promise.resolve(); }
+    return window.PUZZLE_PHONE_PORTRAIT?.lock()||Promise.resolve();
   }
   function requestAppFullscreen(silent=false) {
     if(fullscreenElement()||installedFullscreenMode()) { lockAppOrientation(); return Promise.resolve(true); }
@@ -4270,8 +4300,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
     // A mode/puzzle URL rebuilds that board on load. Finish an update at the
     // clean title URL, and replace history so Back cannot reopen the old board.
     setTimeout(()=>{
-      if(location.search||location.hash) location.replace(location.pathname);
-      else location.reload();
+      if(location.search||location.hash) window.PUZZLE_PHONE_PORTRAIT.navigate(location.pathname,true);
+      else window.PUZZLE_PHONE_PORTRAIT.reload();
     },120);
   }
   function applyPendingReload(){ if(sessionStorage.getItem(PENDING_KEY)==='1'&&atSafeReloadPoint()) reloadWhenSafe(); }
