@@ -47,9 +47,17 @@
   #p2p-code button { min-height:54px; padding:8px 22px; border:2px solid #76b9d2; border-radius:12px; background:#1b4054; color:#effbff; font:800 24px "Yu Gothic UI","Meiryo",sans-serif; }
   #p2p-code button[type=submit] { background:#226246; border-color:#a8ffd0; }
   #p2p-authority { position:fixed; width:1px; height:1px; overflow:hidden; opacity:0; pointer-events:none; left:-20px; top:-20px; }
-  @media (orientation: portrait) and (pointer: coarse) { #rotate-notice { display:grid; } }
-  @media (orientation: portrait) { html[data-touch-test] #rotate-notice { display:grid; } }
-  html[data-touch-portrait-test] #rotate-notice { display:grid; }
+  /* A phone with its OS rotation locked to portrait still reports a portrait viewport
+     while it is held sideways. Rotate the complete app shell, not only the canvas,
+     so the game, dialogs, and touch controls remain one coherent landscape surface. */
+  @media (orientation: portrait) and (pointer: coarse) {
+    body { position:fixed; left:50%; top:50%; width:100vh; height:100vw; width:100dvh; height:100dvw; transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
+    canvas { width:100%; height:100%; }
+    #rotate-notice { display:none; }
+  }
+  html[data-portrait-shell-test] body { position:fixed; left:50%; top:50%; width:100vh; height:100vw; width:100dvh; height:100dvw; transform:translate(-50%,-50%) rotate(90deg); transform-origin:center; }
+  html[data-portrait-shell-test] canvas { width:100%; height:100%; }
+  html[data-portrait-shell-test] #rotate-notice { display:none; }
   @media (prefers-reduced-motion: reduce) { canvas { image-rendering:pixelated; } }
 </style>
 </head>
@@ -2733,6 +2741,9 @@
   }
   function gamepadPresent() { return GAMEPAD_TEST || [...(navigator.getGamepads?.() || [])].some(Boolean); }
   function touchControlsVisible() { return touchCapable && !gamepadPresent(); }
+  function portraitLandscapeShell() {
+    return document.documentElement.dataset.portraitShellTest==='1' || (touchCapable && matchMedia('(orientation: portrait) and (pointer: coarse)').matches);
+  }
   function toggleFullscreenMode() {
     const action=document.fullscreenElement ? document.exitFullscreen?.bind(document) : document.documentElement.requestFullscreen?.bind(document.documentElement);
     if(!action) { say('このブラウザでは全画面を使えません',1600); return; }
@@ -2749,6 +2760,12 @@
     // Canvas menus are rendered as buttons on every device. Do not leave desktop mouse users with keyboard-only menus.
     canvas.focus({preventScroll:true});
     event.preventDefault();
+    // A portrait-locked phone can be physically held sideways. The visual shell is
+    // rotated 90 degrees, so feed the existing landscape hit tests virtual coords.
+    if(portraitLandscapeShell()) {
+      const rect=canvas.getBoundingClientRect(), nx=(event.clientX-rect.left)/rect.width, ny=(event.clientY-rect.top)/rect.height;
+      event={clientX:rect.left+ny*rect.width,clientY:rect.top+(1-nx)*rect.height,pointerId:event.pointerId};
+    }
     const touchRect=canvas.getBoundingClientRect(), touchX=(event.clientX-touchRect.left)*W/touchRect.width, touchY=(event.clientY-touchRect.top)*H/touchRect.height;
     const inside=(x,y,w,h)=>touchX>=x&&touchX<=x+w&&touchY>=y&&touchY<=y+h;
     if(settingsOpen) { if(inside(1125,38,185,58)) toggleFullscreenMode(); else { enterMobileConsoleMode(); if(inside(360,744,350,58)) restoreAllInputDefaults(); else if(inside(850,744,350,58)) clearSavedInputSettings(); else if(inside(24,20,150,58)) closeSettings(); else if(inside(1420,20,155,58)) cycleSfxVolume(); else if(touchX>=300&&touchX<=1300&&touchY>=112&&touchY<=112+BINDABLE_ACTIONS.length*33) settingsIndex=Math.min(BINDABLE_ACTIONS.length-1,Math.floor((touchY-112)/33)); } return; }
@@ -3624,7 +3641,7 @@
   }
   if(QUERY.has('replay')) document.documentElement.dataset.replayImport=IMPORTED_REPLAY ? `accepted-v${IMPORTED_REPLAY.version}-from-v${IMPORTED_REPLAY.migratedFrom}` : `rejected-${REPLAY_IMPORT_ERROR}`;
   if(QUERY.get('touch') === '1') document.documentElement.dataset.touchTest=touchControlsVisible() ? 'controls-enabled' : 'controls-hidden';
-  if(QUERY.get('portraitTest') === '1') document.documentElement.dataset.touchPortraitTest='1';
+  if(QUERY.get('portraitTest') === '1') document.documentElement.dataset.portraitShellTest='1';
   if(GAMEPAD_TEST) document.documentElement.dataset.gamepadTest=gamepadPresent() && !touchControlsVisible() ? 'gamepad-ui-enabled' : 'gamepad-ui-failed';
   resetGame();
   if(COMMUNITY_REQUESTED) openCommunityBrowser();
