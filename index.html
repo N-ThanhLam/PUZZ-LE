@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-3">
+<meta name="puzzle-build" content="pwa-20260715-4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -102,7 +102,7 @@
      so browser chrome changing the available height cannot resize the controls. */
   html[data-phone-ui="1"], html[data-phone-ui="1"] body { width:100%; min-width:100%; height:100%; min-height:100%; }
   html[data-phone-ui="1"] body { position:fixed; inset:0; display:grid; place-items:center; padding:max(env(safe-area-inset-top),4px) max(env(safe-area-inset-right),4px) max(env(safe-area-inset-bottom),4px) max(env(safe-area-inset-left),4px); transform:none; overflow:hidden; background:radial-gradient(circle at 50% 0%,#123951 0,#071018 48%,#04080f 100%); }
-  html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); height:auto; max-height:calc(100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); aspect-ratio:auto; }
+  html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); height:auto; max-height:calc(100svh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); aspect-ratio:var(--phone-aspect); }
   @media (display-mode: fullscreen), (display-mode: standalone) { html[data-phone-ui="1"] canvas { width:min(calc(100vw - env(safe-area-inset-left) - env(safe-area-inset-right) - 8px),calc((100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px) * var(--phone-aspect))); max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 8px); } }
   html[data-phone-ui="1"] #creator-meta, html[data-phone-ui="1"] #p2p-code { padding:max(env(safe-area-inset-top),12px) max(env(safe-area-inset-right),12px) max(env(safe-area-inset-bottom),12px) max(env(safe-area-inset-left),12px); }
   html[data-phone-ui="1"] #creator-meta form, html[data-phone-ui="1"] #p2p-code form { width:min(92vw,620px); max-height:92dvh; overflow:auto; padding:22px; }
@@ -111,6 +111,16 @@
 </head>
 <body>
 <canvas id="game" width="1600" height="900" tabindex="0" aria-label="PUZZ-LE。読み込み中"></canvas>
+<script>
+// Set the phone bitmap before the first paint. Route changes create a fresh
+// document, so leaving the HTML default at 1600x900 caused one landscape frame.
+if(document.documentElement.dataset.phoneUi==='1') {
+  const phoneCanvas=document.getElementById('game');
+  phoneCanvas.width=900;
+  phoneCanvas.height=Math.max(1600,Math.min(2000,Number(document.documentElement.dataset.phoneCanvasH)||1600));
+  phoneCanvas.setAttribute('aria-orientation','vertical');
+}
+</script>
 <div id="creator-meta" hidden>
   <form id="creator-meta-form">
     <h2>作品の情報</h2>
@@ -3921,8 +3931,8 @@
   function phoneHeader(title,{back=true,detail=''}={}) {
     phoneBackdrop(); ctx.save(); ctx.shadowColor='rgba(0,0,0,.38)'; ctx.shadowBlur=18; ctx.shadowOffsetY=7; ctx.fillStyle='#0b2132'; rr(18,18,864,104,24); ctx.restore();
     const rail=ctx.createLinearGradient(34,0,866,0); rail.addColorStop(0,'#5bdcff'); rail.addColorStop(.48,'#82f0d6'); rail.addColorStop(1,'rgba(130,240,214,0)'); ctx.fillStyle=rail; rr(38,22,808,5,3); ctx.strokeStyle='#37687e'; ctx.lineWidth=2; ctx.stroke();
-    if(back) phoneButton(34,36,132,68,'戻る',()=>command('cancel'),{tone:'#122c3b'});
-    phoneText(title,back?190:48,70,title.length>13?38:46,'#effbff','left','900'); if(detail) phoneText(detail,856,72,30,'#9ed5e7','right','800');
+    if(back) phoneButton(30,32,158,78,'戻る',()=>command('cancel'),{tone:'#122c3b'});
+    phoneText(title,back?212:48,70,title.length>13?38:46,'#effbff','left','900'); if(detail) phoneText(detail,856,72,30,'#9ed5e7','right','800');
   }
   function phoneMenuCard(x,y,w,h,title,detail,selected,run,{accent='#8bdcff',icon=''}={}) {
     ctx.save(); const fill=ctx.createLinearGradient(x,y,x,y+h); fill.addColorStop(0,selected?'#1d526a':'#102b3c'); fill.addColorStop(1,selected?'#123548':'#091a28'); ctx.fillStyle=fill; ctx.shadowColor=selected?`${accent}55`:'rgba(0,0,0,.3)'; ctx.shadowBlur=selected?20:8; ctx.shadowOffsetY=6; rr(x,y,w,h,22); ctx.shadowBlur=0;
@@ -3934,7 +3944,7 @@
     phoneText('›',x+w-30,y+h/2,42,selected?accent:'#6d9aaa','center','800'); phoneHit(x,y,w,h,run);
   }
   function phoneWindow(items,index,count=8) { if(items.length<=count) return {items,start:0}; const start=Math.max(0,Math.min(items.length-count,index-Math.floor(count/2))); return {items:items.slice(start,start+count),start}; }
-  function phoneBottomBack(label='戻る') { phoneButton(34,H-108,260,82,label,()=>command('cancel'),{tone:'#122c3b'}); }
+  function phoneBottomBack(label='戻る') { phoneButton(28,H-126,304,98,label,()=>command('cancel'),{tone:'#122c3b'}); }
   function phoneDrawNext() {
     ctx.fillStyle='#0a2030'; rr(14,92,162,510,22); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke(); phoneText('NEXT',30,120,30,'#9ed5e7','left','900');
     nextQueue.slice(0,3).forEach((spec,index)=>{ const y=145+index*150; ctx.fillStyle='#071827'; rr(22,y,146,128,16); ctx.strokeStyle='#31576a'; ctx.lineWidth=2; ctx.stroke(); drawPiecePreview(spec,20,y+4,148,120,28); phoneText(`${index+1}`,152,y+102,27,'#9fd8eb','right','800'); });
@@ -3962,14 +3972,17 @@
     // Keep the phone controls visible even when a paired pad is detected. A
     // browser can expose a dormant pad, and hiding the only touch controls
     // would otherwise leave a phone session unusable.
-    const offset=Math.round(PHONE_EXTRA*.55), dockY=1142+offset;
-    ctx.fillStyle='#091d2b'; rr(12,dockY,876,420,32); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
-    phoneText('ボム',28,dockY+28,25,'#8ebaca','left','900'); phoneText('移動',30,dockY+132,25,'#8ebaca','left','900'); phoneText('回転・落下',480,dockY+132,25,'#8ebaca','left','900');
-    phoneButton(24,1168+offset,260,82,groups.size?'ボムを選ぶ':'ボムなし',()=>command('reserve'),{tone:groups.size?'#17384a':'#10202b'});
-    phoneButton(302,1168+offset,430,82,releaseWindow?(releaseWindow.armed?'予約中':'爆発を予約'):'ボムを作ろう',()=>command('confirm'),{selected:!!releaseWindow?.armed,tone:releaseWindow?'#284d38':'#10202b'});
-    phoneButton(750,1168+offset,126,82,'停止',()=>command('pause'),{tone:'#273342'});
-    phoneButton(26,1280+offset,190,118,'左',()=>command('left'),{repeat:true,action:'left'}); phoneButton(230,1280+offset,190,118,'右',()=>command('right'),{repeat:true,action:'right'}); phoneButton(128,1416+offset,190,118,'下',()=>command('down'),{repeat:true,action:'down'});
-    phoneButton(480,1280+offset,130,100,'左回転',()=>command('rotateLeft'),{tone:'#1a4052'}); phoneButton(624,1400+offset,250,134,'即落下',()=>command('drop'),{selected:true,tone:'#24566e'}); phoneButton(744,1280+offset,130,100,'右回転',()=>command('rotateRight'),{tone:'#1a4052'});
+    const offset=Math.round(PHONE_EXTRA*.55), dockY=1138+offset, topY=dockY+20, actionY=dockY+134, bottomY=dockY+270;
+    ctx.fillStyle='#091d2b'; rr(12,dockY,876,422,32); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
+    phoneButton(28,topY,250,96,groups.size?'ボムを選ぶ':'ボムなし',()=>command('reserve'),{tone:groups.size?'#17384a':'#10202b'});
+    phoneButton(294,topY,400,96,releaseWindow?(releaseWindow.armed?'予約中':'爆発を予約'):'ボムを作ろう',()=>command('confirm'),{selected:!!releaseWindow?.armed,tone:releaseWindow?'#284d38':'#10202b'});
+    phoneButton(710,topY,162,96,'停止',()=>command('pause'),{tone:'#273342'});
+    phoneButton(28,actionY,196,122,'左',()=>command('left'),{repeat:true,action:'left'});
+    phoneButton(244,actionY,196,122,'右',()=>command('right'),{repeat:true,action:'right'});
+    phoneButton(28,bottomY,412,126,'下',()=>command('down'),{repeat:true,action:'down'});
+    phoneButton(460,actionY,196,122,'左回転',()=>command('rotateLeft'),{tone:'#1a4052'});
+    phoneButton(676,actionY,196,122,'右回転',()=>command('rotateRight'),{tone:'#1a4052'});
+    phoneButton(460,bottomY,412,126,'即落下',()=>command('drop'),{selected:true,tone:'#24566e'});
   }
   function phoneDrawGameplay() {
     phoneBackdrop(); ctx.save(); ctx.shadowColor='rgba(67,203,255,.2)'; ctx.shadowBlur=28; ctx.fillStyle='#071522'; rr(BX-16,BY-16,BW+32,BH+32,28); ctx.restore(); ctx.strokeStyle='#3b7890'; ctx.lineWidth=2; ctx.stroke();
@@ -3981,7 +3994,7 @@
     phoneHeader('PUZZ-LE',{back:false}); phoneText('PUZZ',52,190,76,'#f1fbff','left','900'); phoneText('-LE',570,190,76,'#61d1f5','left','900');
     const labels=['ランク戦','デイリー','詰めパズル','構築ラボ','ローグ・ラン','フレンド対戦','つくる'];
     const gap=158+Math.min(50,Math.floor(PHONE_EXTRA/7)); labels.forEach((label,index)=>phoneMenuCard(60,260+index*gap,780,132,label,'',titleMenuIndex===index,()=>{titleMenuIndex=index;command('start');},{icon:['◆','日','詰','構','路','対','＋'][index]}));
-    phoneButton(620,H-210,220,76,'操作設定',()=>command('settings'),{tone:'#122c3b'});
+    phoneButton(560,H-224,300,92,'操作設定',()=>command('settings'),{tone:'#122c3b'});
   }
   function phoneDrawListScreen(title,items,index,choose,{count=8,detail='',back=true,top=150,rowH=154}={}) {
     phoneHeader(title,{back,detail}); const windowed=phoneWindow(items,index,count);
