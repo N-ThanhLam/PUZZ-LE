@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260714-2">
+<meta name="puzzle-build" content="pwa-20260714-3">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -329,13 +329,19 @@
   function validCustomPuzzle(puzzle) { const meta=puzzle?.meta, metaValid=!meta || (typeof meta==='object' && creatorText(meta.author,16)===String(meta.author||'').trim() && creatorText(meta.description,60)===String(meta.description||'').trim() && Array.isArray(meta.tags) && meta.tags.length<=3 && meta.tags.every(tag=>CREATOR_TAGS.includes(tag)) && ['private','link'].includes(meta.visibility)); return !!(puzzle && typeof puzzle.id==='string' && puzzle.id.startsWith('custom_') && typeof puzzle.name==='string' && puzzle.name.length<=24 && metaValid && Array.isArray(puzzle.initialBoard?.blocks) && puzzle.initialBoard.blocks.length<=200 && puzzle.initialBoard.blocks.every(block=>Number.isInteger(block.x)&&block.x>=0&&block.x<10&&Number.isInteger(block.y)&&block.y>=0&&block.y<20&&CUSTOM_PUZZLE_COLORS.includes(block.color)) && Array.isArray(puzzle.queue) && puzzle.queue.length>0 && puzzle.queue.length<=3 && puzzle.queue.every(piece=>piece?.type==='O'&&Array.isArray(piece.colors)&&piece.colors.length===4&&piece.colors.every(color=>CUSTOM_PUZZLE_COLORS.includes(color))) && ['release','chain'].includes(puzzle.goal?.type) && Number.isInteger(puzzle.goal.minimum) && puzzle.goal.minimum>=1&&puzzle.goal.minimum<=3); }
   function readCustomPuzzles() { try { const list=JSON.parse(localStorage.getItem(CUSTOM_PUZZLE_STORAGE)||'[]'); return Array.isArray(list)?list.filter(validCustomPuzzle):[]; } catch(_) { return []; } }
   Object.assign(PUZZLES,Object.fromEntries(readCustomPuzzles().map(puzzle=>[puzzle.id,puzzle])));
-  const QUERY = new URLSearchParams(location.search);
+  // Authority boards are cloned from the exact parent document so a PWA cache
+  // update cannot mix two game builds.  A cloned frame has no useful URL query,
+  // therefore its owner passes the normal query string through frame data.
+  const QUERY = new URLSearchParams(globalThis.frameElement?.dataset?.p2pParams || location.search);
   // The head bootstrap applies the previous screen's full size before first
   // paint; resize events can only grow that baseline, never shrink it.
   function stabilizeAppViewport() { window.PUZZLE_APP_VIEWPORT?.apply(); }
   stabilizeAppViewport();
   addEventListener('resize',stabilizeAppViewport);
+  addEventListener('pageshow',stabilizeAppViewport);
   window.visualViewport?.addEventListener('resize',stabilizeAppViewport);
+  document.addEventListener('fullscreenchange',stabilizeAppViewport);
+  document.addEventListener('webkitfullscreenchange',stabilizeAppViewport);
   function importedCustomPuzzle() { try { const raw=QUERY.get('custom'); if(!raw || raw.length>30000) return null; const puzzle=JSON.parse(raw); return validCustomPuzzle(puzzle)?puzzle:null; } catch(_) { return null; } }
   const IMPORTED_CUSTOM_PUZZLE = importedCustomPuzzle();
   if(IMPORTED_CUSTOM_PUZZLE) PUZZLES[IMPORTED_CUSTOM_PUZZLE.id]=IMPORTED_CUSTOM_PUZZLE;
@@ -350,7 +356,7 @@
   const COMMUNITY_PUZZLE_ID = creatorText(QUERY.get('communityId'),80);
   const COMMUNITY_PUBLISHED_STORAGE = 'puzzle-le-community-published-v1';
   const ONLINE_ROOM_FROM_LINK = QUERY.get('room') || '';
-  const P2P_PROTOCOL_VERSION = 1;
+  const P2P_PROTOCOL_VERSION = 4;
   const P2P_HEADLESS = QUERY.get('p2pHeadless')==='1';
   const P2P_MATCH_ENABLED = QUERY.get('p2p')==='1' && QUERY.get('p2pRoom') && ['host','guest'].includes(QUERY.get('p2pRole'));
   const P2P_ROLE = QUERY.get('p2pRole') || '';
@@ -454,7 +460,7 @@
   // Daily seeds use the same JST date on every device. A supplied seed always wins.
   const RUN_SEED = QUERY.get('seed') || IMPORTED_REPLAY?.seed || (RULES.mode.seedPolicy==='daily' ? `daily-${DAILY_DATE}` : RULES.mode.seedPolicy==='puzzle' ? `puzzle-${PUZZLE_ID}` : `${PLAY_MODE}-${Date.now()}-${Math.random()}`);
   // Dev-only reproducible tactical positions. Never used by the ranked ruleset.
-  const DEV_SCENARIO = new URLSearchParams(location.search).get('scenario') || '';
+  const DEV_SCENARIO = QUERY.get('scenario') || '';
   const ROGUE_ENABLED = !!RULES.mode.flags.rogue;
   const TERRAIN_ENABLED = !!RULES.mode.flags.terrain || (PLAY_MODE==='puzzle'&&!!ACTIVE_PUZZLE.terrain) || DEV_SCENARIO === 'terrain';
   const ATTRIBUTES_ENABLED = !!RULES.mode.flags.attributes;
@@ -563,10 +569,12 @@
     peer:null, conn:null, role:'', roomCode:'', roomId:'', status:'idle', mode:'friend',
     token:'', remoteId:'', remoteToken:'', localId:'', seed:'', engines:[], eventLog:[],
     eventCursor:0, lastSequence:new Map(), localSequence:0, reconnectTimer:null, persistTimer:null,
-    reconnectDeadline:0, reconnectAttempt:0, heartbeatTimer:null, lastRx:0,
+    reconnectDeadline:0, reconnectAttempt:0, heartbeatTimer:null, gravityTimer:null, syncTimer:null, repairTimer:null, lastRx:0,
+    clockOrigin:0, clockOffset:0,
+    generation:0, resumeInProgress:false, syncAttempts:0,
     intentional:false, lobbyAction:'join', quickSlot:-1, rematch:new Set(), matchEnded:false
   };
-  let lastFrame = performance.now(), time = 0;
+  let lastFrame = performance.now(), time = 0, p2pClockActive = false, p2pClockMs = 0;
   let inputLock = {}, padPrevious = [], rawPadPrevious = [], keyBindings = readKeyBindings(), gamepadBindings = readGamepadBindings(), settingsOpen = false, settingsIndex = 0, remapAction = null, remapPadAction = null, remapPadArmed = false, gamepadEmergencyAt = 0, gamepadEmergencyDone = false, touchRepeatAction = null, touchRepeatAt = 0, onlineDesync = false;
 
   const cell = (color, state='normal', groupId=null) => ({ color, state, groupId });
@@ -682,6 +690,7 @@
   const inBoard = (x,y) => x >= 0 && x < RULES.board.width && y >= 0 && y < RULES.board.height;
 
   function resetGame() {
+    p2pClockActive=false; p2pClockMs=0;
     board = emptyBoard(); groups = new Map(); nextQueue = []; bag = [];
     random = mulberry32(hashSeed(RUN_SEED));
     active = null; phase = 'falling'; selectedGroup = 0; score = 0; lastChain = 0; turn = 0; runElapsedMs=0; releaseWindow = null; lastReleaseTurn=-Infinity; lockDeadline=null; replaySpeed=1; pausedFrom=null; cardEffectUntil=0; cardEffectText=''; puzzleHintLevel=0; puzzleHintUses=0; puzzleClearResult=null; pauseMenuIndex=0; communityRatingIndex=0; communityDailyResult=null; titleMenuIndex=PLAY_MODE==='daily'?1:PLAY_MODE==='puzzle'?2:PLAY_MODE==='build'?3:PLAY_MODE==='rogue'?4:0; puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; puzzleMenuIndex=Math.max(0,selectablePuzzles().findIndex(puzzle=>puzzle.id===PUZZLE_ID)); dailyMenuIndex=Math.max(0,archiveDates().indexOf(DAILY_DATE)); draftMenuIndex=0; draftOffers=[]; draftRerolls=0; compareIndex=0; compareLatest=null; compareBest=null; lastReleaseInfo=null; helpOpen=false; tutorialOpen=false; tutorialStep=0; rogueNode=0; rogueHearts=3; rogueRewardIndex=0; rogueOffers=[]; rogueRouteIndex=0; rogueEncounterKind='safe'; rogueMutator=null; rogueMutatorLog=[]; rogueRestIndex=0; rogueRestRemoving=false; rogueBossLines=0; rogueEncounterStartScore=0; rogueEncounterStartElapsedMs=0; rogueEncounterProgress={releases:0,cleanup:0,lines:0,maxChain:0}; rogueEncounterRecords=[]; rogueHubIndex=0; rogueHistoryIndex=0; rogueRouteLog=[];
@@ -812,6 +821,37 @@
   function gravityPercent() { return Math.round(RULES.timing.gravityMs/gravityInterval()*100); }
   function paceLevel(elapsedMs=runElapsedMs) { return Math.min(6,1+Math.floor((RULES.timing.gravityMs-gravityIntervalAt(elapsedMs))/100)); }
   function naturalFallSeconds(elapsedMs=runElapsedMs) { return gravityIntervalAt(elapsedMs)*RULES.board.height/1000; }
+  function startP2PBoardClock() {
+    p2pClockActive=true; p2pClockMs=0; runElapsedMs=0; lockDeadline=null;
+    gravityAt=gravityInterval();
+  }
+  function ensureP2PBoardClock() { if(!p2pClockActive) startP2PBoardClock(); }
+  function p2pNextNaturalDue() {
+    if(!p2pClockActive||phase!=='falling'||!active) return Infinity;
+    return Math.min(gravityAt,lockDeadline===null?Infinity:lockDeadline);
+  }
+  function advanceP2PBoardClock(targetMs) {
+    ensureP2PBoardClock();
+    const target=Math.max(p2pClockMs,Number.isFinite(Number(targetMs))?Number(targetMs):p2pClockMs);
+    let guard=0;
+    while(phase==='falling'&&active&&p2pNextNaturalDue()<=target&&guard++<256) {
+      const due=p2pNextNaturalDue(), priorPace=paceLevel();
+      runElapsedMs+=Math.max(0,due-p2pClockMs); p2pClockMs=due;
+      const currentPace=paceLevel(); runStats.maxPace=Math.max(runStats.maxPace,currentPace);
+      if(currentPace>priorPace&&!P2P_HEADLESS) { say(`速さ ${currentPace}　ここから速くなる`,1200); soundEvent('pace',{level:currentPace}); }
+      if(lockDeadline!==null&&lockDeadline<=due) lockPiece();
+      else {
+        if(!tryMove(0,1)) armLockDelay(due);
+        gravityAt=due+gravityInterval();
+      }
+    }
+    if(p2pClockMs<target) {
+      const priorPace=paceLevel(); runElapsedMs+=target-p2pClockMs; p2pClockMs=target;
+      const currentPace=paceLevel(); runStats.maxPace=Math.max(runStats.maxPace,currentPace);
+      if(currentPace>priorPace&&!P2P_HEADLESS) { say(`速さ ${currentPace}　ここから速くなる`,1200); soundEvent('pace',{level:currentPace}); }
+    }
+    return p2pClockMs;
+  }
   function spawnPiece() {
   /* legacy encoded body
     fillQueue(); const spec = nextQueue.shift(); fillQueue();
@@ -824,7 +864,7 @@
     fillQueue(); const spec=nextQueue.shift(); fillQueue();
     active={type:spec.type, colors:spec.colors, rotation:0, x:3, y:-1};
     if(collides(active)) endGame('TOP OUT');
-    lockDeadline=null; gravityAt=performance.now()+gravityInterval();
+    lockDeadline=null; gravityAt=(p2pClockActive?p2pClockMs:performance.now())+gravityInterval();
   }
   function cellsOf(piece=active) { return rotated(SHAPES[piece.type], piece.rotation).map((p,i) => ({x:piece.x+p[0], y:piece.y+p[1], color:piece.colors[i]})); }
   function collides(piece) { return cellsOf(piece).some(p => p.x<0 || p.x>=RULES.board.width || p.y>=RULES.board.height || (p.y>=0 && board[p.y][p.x])); }
@@ -834,7 +874,7 @@
     while(!collides({...landing,y:landing.y+1})) landing={...landing,y:landing.y+1};
     return landing;
   }
-  function armLockDelay(now=performance.now()) { if(lockDeadline===null) lockDeadline=now+RULES.timing.lockDelayMs; }
+  function armLockDelay(now=p2pClockActive?p2pClockMs:performance.now()) { if(lockDeadline===null) lockDeadline=now+RULES.timing.lockDelayMs; }
   function tryMove(dx,dy) { const p={...active,x:active.x+dx,y:active.y+dy}; if(collides(p)) return false; active=p; lockDeadline=null; return true; }
   function tryRotate(direction=1) {
     const p={...active,rotation:(active.rotation+direction+4)%4};
@@ -2023,6 +2063,11 @@
     const paceSamples=[0,60000,180000,300000,330000].map(elapsed=>gravityIntervalAt(elapsed));
     assertRuleTest(paceSamples.join(',')==='700,600,400,200,150' && paceLevel(0)===1 && paceLevel(300000)===6,'six-step expert pace curve'); checks++;
     assertRuleTest(naturalFallSeconds(0)===14 && naturalFallSeconds(330000)===3 && RULES.timing.lockDelayMs>RULES.timing.minGravityMs*2,'opening grace and expert recovery window'); checks++;
+    prepare(); startP2PBoardClock(); const firstP2PDue=p2pNextNaturalDue(); advanceP2PBoardClock(firstP2PDue-1); const beforeP2PFall=active.y; advanceP2PBoardClock(firstP2PDue); assertRuleTest(beforeP2PFall===0&&active.y===1&&p2pClockMs===firstP2PDue,'p2p authority natural fall'); checks++;
+    prepare(); active.y=18; startP2PBoardClock(); const landingDue=p2pNextNaturalDue(); advanceP2PBoardClock(landingDue); const landingLock=lockDeadline; advanceP2PBoardClock(landingLock-1); const beforeP2PLock=turn; advanceP2PBoardClock(landingLock); assertRuleTest(beforeP2PLock===0&&turn===1&&landingLock===landingDue+RULES.timing.lockDelayMs,'p2p authority lock delay'); checks++;
+    prepare(); startP2PBoardClock(); advanceP2PBoardClock(250); hardDrop(); assertRuleTest(turn===1&&gravityAt===250+gravityInterval(),'p2p hard drop reschedules gravity'); checks++;
+    prepare(); startP2PBoardClock(); const positionDigest=onlineClientDigest(); active={...active,x:active.x+1}; assertRuleTest(onlineClientDigest()!==positionDigest,'p2p digest covers active piece'); checks++;
+    prepare(); startP2PBoardClock(); const queueDigest=onlineClientDigest(); incomingAttacks.push({kind:'plant',amount:1,receivedTurn:turn}); assertRuleTest(onlineClientDigest()!==queueDigest,'p2p digest covers attack queue'); checks++;
     const journeyStats={releases:1,cleanupBlocks:8,lineClears:1,maxChain:2,maxReleasePace:4,runaways:0};
     assertRuleTest(RANKED_JOURNEY.every(step=>step.test(journeyStats)) && rankedJourneyState(-2).completed===0 && rankedJourneyState(99).complete,'ranked journey board-skill gates'); checks++;
     assertRuleTest(!RANKED_JOURNEY[3].test({...journeyStats,maxReleasePace:3}) && !RANKED_JOURNEY[4].test({...journeyStats,runaways:1}),'ranked journey rejects early pace and runaway clears'); checks++;
@@ -2168,11 +2213,18 @@
   function onlineInviteLink() { if(!onlineRoom?.id) return ''; const base=location.href.split('?')[0]; return `${base}?room=${encodeURIComponent(onlineRoom.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}`; }
   function copyOnlineSpectatorInvite() { if(!onlineRoom?.id) return; const url=`${location.href.split('?')[0]}?room=${encodeURIComponent(onlineRoom.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}&spectate=1`; navigator.clipboard?.writeText(url).then(()=>say('観戦リンクをコピーしました',1600)).catch(()=>say('観戦リンクをコピーできません',1800)); }
   function copyOnlineInvite() { const invite=onlineInviteLink(); if(!invite) return; navigator.clipboard?.writeText(invite).then(()=>say('招待リンクをコピーしました',1600)).catch(()=>say(`部屋コード　${onlineRoom.id}`,2800)); }
-  function onlineClientDigest() { let hash=2166136261; const value=JSON.stringify({phase,score,turn,board:encodeReplayBoard(board),stats:{...runStats}}); for(let index=0;index<value.length;index++) { hash^=value.charCodeAt(index); hash=Math.imul(hash,16777619); } return (hash>>>0).toString(16).padStart(8,'0'); }
+  function onlineDigestPayload() {
+    const bombState=[...groups.values()].map(group=>({id:group.id,pressure:group.pressure,cells:group.cells.map(([x,y])=>[x,y])})).sort((a,b)=>a.id.localeCompare(b.id));
+    const release=releaseWindow?{id:releaseWindow.target?.id||'',armed:!!releaseWindow.armed,reason:releaseWindow.reason||'',cells:releaseWindow.target?.cells||[]}:null;
+    return {phase,score,turn,board:encodeReplayBoard(board),active:active?{type:active.type,colors:[...active.colors],rotation:active.rotation,x:active.x,y:active.y}:null,next:nextQueue.slice(0,NEXT_COUNT),bag:[...bag],bombState,release,selectedGroup,pendingPressure,incomingAttacks,outgoingAttacks,lockDeadline,gravityAt:p2pClockActive?gravityAt:null,clockMs:p2pClockActive?p2pClockMs:null,stats:{...runStats}};
+  }
+  function onlineClientDigest() { let hash=2166136261; const value=JSON.stringify(onlineDigestPayload()); for(let index=0;index<value.length;index++) { hash^=value.charCodeAt(index); hash=Math.imul(hash,16777619); } return (hash>>>0).toString(16).padStart(8,'0'); }
   function launchOnlineMatch() { const mine=onlineRoom?.players?.find(player=>player.id===onlineGuestId()); if(!onlineRoom?.match||!mine) return; const base=location.href.split('?')[0], seed=`${onlineRoom.match.seed}-seat-${mine.seat}`; location.href=`${base}?mode=pvp&seed=${encodeURIComponent(seed)}&room=${encodeURIComponent(onlineRoom.id)}&server=${encodeURIComponent(ONLINE_SERVER_URL)}&online=1&seat=${mine.seat}`; }
   function onlineAttackLabel(attack) { return attack?.kind==='pressure'?`圧力 +${attack.amount}`:`植物の種 ×${attack?.amount||1}`; }
   function rememberOnlineAttack(feed, attack) { feed.unshift({...attack,atTurn:turn}); feed.splice(3); }
-  function applyAuthoritativeInput(event) { const localId=onlineLocalPlayerId(); if(event.playerId!==localId) { onlineOpponentState=event.authority||onlineOpponentState; return; } for(const delivery of event.deliveries||[]) if(delivery.targetId!==localId) rememberOnlineAttack(onlineAttackSentFeed,delivery.attack); onlineApplying=true; try { command(event.action); } finally { onlineApplying=false; } if(event.authority) { onlineDesync=onlineClientDigest()!==event.authority.digest; onlineError=onlineDesync?'盤面の同期を確認しています':''; if(onlineDesync) say('同期を確認中…',1800); } }
+  function p2pVerifyAuthority(event) { if(!event.authority) return true; const matches=onlineClientDigest()===event.authority.digest; if(!matches) { onlineDesync=true; onlineError='盤面をそろえ直しています'; say('盤面をそろえ直しています',1600); } return matches; }
+  function applyAuthoritativeInput(event) { const localId=onlineLocalPlayerId(); if(event.playerId!==localId) { onlineOpponentState=event.authority||onlineOpponentState; return; } if(P2P_MATCH_ENABLED&&Number.isFinite(Number(event.atMs))) advanceP2PBoardClock(Number(event.atMs)); for(const delivery of event.deliveries||[]) if(delivery.targetId!==localId) rememberOnlineAttack(onlineAttackSentFeed,delivery.attack); const overlayState={settingsOpen,helpOpen,tutorialOpen}; settingsOpen=false; helpOpen=false; tutorialOpen=false; onlineApplying=true; try { command(event.action); } finally { onlineApplying=false; settingsOpen=overlayState.settingsOpen; helpOpen=overlayState.helpOpen; tutorialOpen=overlayState.tutorialOpen; } p2pVerifyAuthority(event); }
+  function applyAuthoritativeClock(event) { const localId=onlineLocalPlayerId(); if(event.playerId!==localId) { onlineOpponentState=event.authority||onlineOpponentState; return; } for(const delivery of event.deliveries||[]) if(delivery.targetId!==localId) rememberOnlineAttack(onlineAttackSentFeed,delivery.attack); advanceP2PBoardClock(Number(event.atMs)||0); p2pVerifyAuthority(event); }
   function receiveOnlineAttack(attack, fromId) { if(!attack||fromId===onlineLocalPlayerId()) return; const queued={...attack,receivedTurn:turn}; incomingAttacks.push(queued); rememberOnlineAttack(onlineAttackFeed,queued); say(`${onlineAttackLabel(queued)}　次の固定で発動`,1800); }
   function handleOnlineMessage(message) {
     if(message.type==='welcome') { onlineStatus='guest'; onlineSend('hello',{guestId:onlineGuestId()}); return; }
@@ -2205,14 +2257,23 @@
   function p2pToken() { return [...crypto.getRandomValues(new Uint32Array(3))].map(value=>value.toString(36)).join('').slice(0,24); }
   function p2pPacketValid(message) { if(!message||typeof message!=='object'||typeof message.type!=='string'||message.type.length>40) return false; try { return JSON.stringify(message).length<=P2P_PACKET_LIMIT; } catch(_) { return false; } }
   function p2pSafeSend(message,conn=P2P.conn) { if(!conn?.open||!p2pPacketValid(message)) return false; try { if((conn.bufferSize||0)>256*1024) return false; conn.send(message); return true; } catch(_) { return false; } }
-  function p2pSetStatus(status,error='') { P2P.status=status; onlineStatus=status; onlineError=error; if(P2P_MATCH_ENABLED) { document.documentElement.dataset.p2pStatus=status; document.documentElement.dataset.p2pRole=P2P.role; } }
+  function p2pSetStatus(status,error='') { P2P.status=status; onlineStatus=status; onlineError=error; if(P2P_MATCH_ENABLED) { document.documentElement.dataset.p2pStatus=status; document.documentElement.dataset.p2pRole=P2P.role; document.documentElement.dataset.p2pError=error; } }
   function p2pStorageKey() { return `puzzle-le-p2p-host-v1:${P2P.roomId}`; }
-  function p2pPersistHost() { if(P2P.role!=='host'||!P2P.roomId||!P2P.seed) return; clearTimeout(P2P.persistTimer); P2P.persistTimer=null; try { const history=P2P.eventLog.map(event=>({seat:event.seat,sequence:event.sequence,action:event.action})); localStorage.setItem(p2pStorageKey(),JSON.stringify({protocol:P2P_PROTOCOL_VERSION,roomCode:P2P.roomCode,seed:P2P.seed,localId:P2P.localId,remoteId:P2P.remoteId,remoteToken:P2P.remoteToken,history})); } catch(_) {} }
+  function p2pPersistHost() { if(P2P.role!=='host'||!P2P.roomId||!P2P.seed) return; clearTimeout(P2P.persistTimer); P2P.persistTimer=null; try { const history=P2P.eventLog.map(event=>({seat:event.seat,sequence:event.sequence,action:event.action,system:!!event.system,atMs:Math.max(0,Number(event.atMs)||0)})); localStorage.setItem(p2pStorageKey(),JSON.stringify({protocol:P2P_PROTOCOL_VERSION,roomCode:P2P.roomCode,seed:P2P.seed,localId:P2P.localId,remoteId:P2P.remoteId,remoteToken:P2P.remoteToken,clockMs:p2pClockNow(),history})); } catch(_) {} }
   function p2pSchedulePersist() { if(P2P.role!=='host'||P2P.persistTimer) return; P2P.persistTimer=setTimeout(p2pPersistHost,180); }
   function p2pReadHostState() { try { const state=JSON.parse(localStorage.getItem(p2pStorageKey())||'null'); return state?.protocol===P2P_PROTOCOL_VERSION&&state.seed===P2P.seed?state:null; } catch(_) { return null; } }
-  function p2pClearTimers() { clearTimeout(P2P.reconnectTimer); P2P.reconnectTimer=null; clearTimeout(P2P.persistTimer); P2P.persistTimer=null; clearInterval(P2P.heartbeatTimer); P2P.heartbeatTimer=null; }
-  function p2pDestroyNetwork(keepAuthority=false) { p2pClearTimers(); P2P.intentional=true; try { P2P.conn?.close(); } catch(_) {} try { P2P.peer?.destroy(); } catch(_) {} P2P.conn=null; P2P.peer=null; if(!keepAuthority) { for(const engine of P2P.engines) try { engine.iframe.remove(); } catch(_) {} P2P.engines=[]; } }
-  function p2pLeave(toTitle=true) { if(P2P.role==='host'&&P2P.conn?.open) p2pSafeSend({type:'host_left'}); if(P2P.role==='host'&&P2P.roomId) try { localStorage.removeItem(p2pStorageKey()); } catch(_) {} p2pDestroyNetwork(); P2P.role=''; P2P.roomCode=''; onlineRoom=null; onlineOpponentState=null; if(toTitle) location.href=location.pathname; }
+  function p2pClockNow() { return Math.max(0,P2P.clockOffset+(P2P.clockOrigin?performance.now()-P2P.clockOrigin:0)); }
+  function p2pStopGravityClock(preserve=true) { if(preserve&&P2P.clockOrigin) P2P.clockOffset=p2pClockNow(); clearInterval(P2P.gravityTimer); P2P.gravityTimer=null; P2P.clockOrigin=0; }
+  function p2pStartGravityClock() {
+    if(P2P.role!=='host'||P2P.engines.length!==2||P2P.matchEnded) return;
+    p2pStopGravityClock(true);
+    P2P.clockOffset=Math.max(P2P.clockOffset,...P2P.eventLog.map(event=>Math.max(0,Number(event.atMs)||0)),0);
+    P2P.clockOrigin=performance.now();
+    P2P.gravityTimer=setInterval(()=>{ if(P2P.status==='active'&&phase==='falling'&&!P2P.matchEnded) p2pHostFlushTime(p2pClockNow()); },25);
+  }
+  function p2pClearTimers() { clearTimeout(P2P.reconnectTimer); P2P.reconnectTimer=null; clearTimeout(P2P.persistTimer); P2P.persistTimer=null; clearTimeout(P2P.syncTimer); P2P.syncTimer=null; clearTimeout(P2P.repairTimer); P2P.repairTimer=null; clearInterval(P2P.heartbeatTimer); P2P.heartbeatTimer=null; p2pStopGravityClock(false); }
+  function p2pDestroyNetwork(keepAuthority=false) { p2pClearTimers(); P2P.intentional=true; P2P.generation++; P2P.resumeInProgress=false; try { P2P.conn?.close(); } catch(_) {} try { P2P.peer?.destroy(); } catch(_) {} P2P.conn=null; P2P.peer=null; if(!keepAuthority) { for(const engine of P2P.engines) try { engine.iframe.remove(); } catch(_) {} P2P.engines=[]; } }
+  function p2pLeave(toTitle=true) { if(P2P.conn?.open) p2pSafeSend({type:P2P.role==='host'?'host_left':'guest_left'}); if(P2P.role==='host'&&P2P.roomId) try { localStorage.removeItem(p2pStorageKey()); } catch(_) {} p2pDestroyNetwork(); P2P.role=''; P2P.roomCode=''; onlineRoom=null; onlineOpponentState=null; if(toTitle) location.href=location.pathname; }
   function p2pOpenCode(action) { P2P.lobbyAction=action; p2pCodeTitle.textContent=action==='host'?'部屋の合言葉':'合言葉で入る'; p2pCodeHelp.textContent=action==='host'?'好きな言葉を決めて友だちに伝えます。':'友だちと同じ言葉を入れてください。'; p2pCodeInput.value=action==='host'?p2pRandomCode():''; p2pCodeOverlay.hidden=false; setTimeout(()=>{p2pCodeInput.focus();p2pCodeInput.select();},0); }
   function p2pCloseCode() { p2pCodeOverlay.hidden=true; canvas.focus({preventScroll:true}); }
   p2pCodeForm.addEventListener('submit',event=>{ event.preventDefault(); const code=p2pNormalizeCode(p2pCodeInput.value); if(code.length<3) { p2pCodeHelp.textContent='3文字以上で入れてください。'; return; } p2pCloseCode(); if(P2P.lobbyAction==='host') p2pHostLobby(code); else p2pJoinLobby(code); });
@@ -2220,47 +2281,91 @@
   p2pCodeOverlay.addEventListener('keydown',event=>{ if(event.key==='Escape') { event.preventDefault(); p2pCloseCode(); } });
 
   function p2pPeerAvailable() { if(typeof Peer==='function') return true; p2pSetStatus('error','通信部品を読み込めません。ネット接続を確認してください'); return false; }
-  function p2pPrepare(role,code,mode='friend') { p2pDestroyNetwork(); P2P.intentional=false; P2P.role=role; P2P.roomCode=p2pNormalizeCode(code); P2P.roomId=p2pRoomId(P2P.roomCode); P2P.mode=mode; P2P.localId=p2pLocalPlayerId(); P2P.remoteId=''; P2P.remoteToken=''; P2P.seed=''; P2P.eventLog=[]; P2P.lastSequence.clear(); P2P.lastRx=Date.now(); P2P.eventCursor=0; P2P.localSequence=0; P2P.matchEnded=false; P2P.rematch.clear(); onlineRoom={id:P2P.roomCode,players:[],status:'waiting'}; }
-  function p2pAttachCommon(conn) { conn.on('data',message=>{ P2P.lastRx=Date.now(); if(p2pPacketValid(message)) p2pHandleMessage(message,conn); }); conn.on('error',()=>p2pConnectionLost()); conn.on('close',()=>p2pConnectionLost()); }
+  function p2pPrepare(role,code,mode='friend') { p2pDestroyNetwork(); P2P.intentional=false; P2P.role=role; P2P.roomCode=p2pNormalizeCode(code); P2P.roomId=p2pRoomId(P2P.roomCode); P2P.mode=mode; P2P.localId=p2pLocalPlayerId(); P2P.remoteId=''; P2P.remoteToken=''; P2P.seed=''; P2P.eventLog=[]; P2P.lastSequence.clear(); P2P.lastRx=Date.now(); P2P.eventCursor=0; P2P.localSequence=0; P2P.clockOrigin=0; P2P.clockOffset=0; P2P.resumeInProgress=false; P2P.syncAttempts=0; P2P.matchEnded=false; P2P.rematch.clear(); onlineRoom={id:P2P.roomCode,players:[],status:'waiting'}; }
+  function p2pAttachCommon(conn) { const generation=P2P.generation; conn.__p2pGeneration=generation; conn.on('data',message=>{ if(generation!==P2P.generation) return; P2P.lastRx=Date.now(); if(p2pPacketValid(message)) p2pHandleMessage(message,conn); }); const lost=()=>{ if(generation===P2P.generation&&P2P.conn===conn) p2pConnectionLost(); }; conn.on('error',lost); conn.on('close',lost); }
   function p2pHostLobby(code,mode='friend',quickSlot=-1) {
-    if(!p2pPeerAvailable()) return; p2pPrepare('host',code,mode); P2P.quickSlot=quickSlot; p2pSetStatus('creating');
+    if(!p2pPeerAvailable()) return; p2pPrepare('host',code,mode); P2P.quickSlot=quickSlot; p2pSetStatus('creating'); const generation=P2P.generation;
     const peer=new Peer(P2P.roomId,{debug:0}); P2P.peer=peer;
-    peer.on('open',()=>{ p2pSetStatus('hosting'); onlineRoom.players=[{id:P2P.localId,seat:0}]; });
-    peer.on('connection',conn=>p2pAcceptHostConnection(conn,false));
-    peer.on('disconnected',()=>{ if(!P2P.intentional) try { peer.reconnect(); } catch(_) {} });
-    peer.on('error',error=>{ if(error.type==='unavailable-id'&&mode==='quick') { try { peer.destroy(); } catch(_) {} p2pJoinLobby(code,'quick',quickSlot); } else p2pSetStatus('error',error.type==='unavailable-id'?'その合言葉は使用中です':'部屋を作れませんでした'); });
+    peer.on('open',()=>{ if(generation!==P2P.generation) return; p2pSetStatus('hosting'); onlineRoom.players=[{id:P2P.localId,seat:0}]; });
+    peer.on('connection',conn=>{ if(generation===P2P.generation) p2pAcceptHostConnection(conn,false); else try { conn.close(); } catch(_) {} });
+    peer.on('disconnected',()=>{ if(generation===P2P.generation&&!P2P.intentional) try { peer.reconnect(); } catch(_) {} });
+    peer.on('error',error=>{ if(generation!==P2P.generation) return; if(error.type==='unavailable-id'&&mode==='quick') { try { peer.destroy(); } catch(_) {} p2pJoinLobby(code,'quick',quickSlot); } else p2pSetStatus('error',error.type==='unavailable-id'?'その合言葉は使用中です':'部屋を作れませんでした'); });
   }
   function p2pJoinLobby(code,mode='friend',quickSlot=-1) {
-    if(!p2pPeerAvailable()) return; p2pPrepare('guest',code,mode); P2P.quickSlot=quickSlot; P2P.token=p2pToken(); p2pSetStatus('connecting');
+    if(!p2pPeerAvailable()) return; p2pPrepare('guest',code,mode); P2P.quickSlot=quickSlot; P2P.token=p2pToken(); p2pSetStatus('connecting'); const generation=P2P.generation;
     const peer=new Peer(undefined,{debug:0}); P2P.peer=peer;
-    peer.on('open',()=>{ const conn=peer.connect(P2P.roomId,{reliable:true,serialization:'json'}); P2P.conn=conn; p2pAttachCommon(conn); conn.on('open',()=>{ p2pSetStatus('handshake'); p2pSafeSend({type:'hello',protocol:P2P_PROTOCOL_VERSION,playerId:P2P.localId,token:P2P.token,mode:'lobby'}); }); });
-    peer.on('disconnected',()=>{ if(!P2P.intentional) try { peer.reconnect(); } catch(_) {} });
-    peer.on('error',error=>{ if(P2P.mode==='quick'&&['peer-unavailable','network'].includes(error.type)) p2pQuickNext(); else p2pSetStatus('error',error.type==='peer-unavailable'?'その部屋はありません':'接続できませんでした'); });
+    peer.on('open',()=>{ if(generation!==P2P.generation) return; const conn=peer.connect(P2P.roomId,{reliable:true,serialization:'json'}); P2P.conn=conn; p2pAttachCommon(conn); conn.on('open',()=>{ if(generation!==P2P.generation) return; p2pSetStatus('handshake'); p2pSafeSend({type:'hello',protocol:P2P_PROTOCOL_VERSION,playerId:P2P.localId,token:P2P.token,mode:'lobby'}); }); });
+    peer.on('disconnected',()=>{ if(generation===P2P.generation&&!P2P.intentional) try { peer.reconnect(); } catch(_) {} });
+    peer.on('error',error=>{ if(generation!==P2P.generation) return; if(P2P.mode==='quick'&&['peer-unavailable','network'].includes(error.type)) p2pQuickNext(); else p2pSetStatus('error',error.type==='peer-unavailable'?'その部屋はありません':'接続できませんでした'); });
   }
   function p2pQuickCode(slot) { return `quick-${slot}`; }
   function p2pStartQuick() { P2P.quickSlot=0; p2pHostLobby(p2pQuickCode(0),'quick',0); p2pSetStatus('quickWaiting'); }
-  function p2pQuickNext() { if(P2P.mode!=='quick') return; const next=(P2P.quickSlot+1)%8; p2pDestroyNetwork(); setTimeout(()=>p2pHostLobby(p2pQuickCode(next),'quick',next),180); }
+  function p2pQuickNext() { if(P2P.mode!=='quick') return; const next=(P2P.quickSlot+1)%8; p2pDestroyNetwork(); const generation=P2P.generation; setTimeout(()=>{ if(generation===P2P.generation) p2pHostLobby(p2pQuickCode(next),'quick',next); },180); }
   function p2pAcceptHostConnection(conn,inMatch) {
-    p2pAttachCommon(conn); conn.on('open',()=>{ conn.__match=inMatch; });
+    p2pAttachCommon(conn); const generation=P2P.generation; conn.on('open',()=>{ if(generation===P2P.generation) conn.__match=inMatch; else try { conn.close(); } catch(_) {} });
   }
   function p2pStartLobbyMatch() {
     if(P2P.role!=='host'||!P2P.conn?.open||!P2P.remoteId) return; const seed=`p2p-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; P2P.seed=seed;
-    const common={type:'match_start',protocol:P2P_PROTOCOL_VERSION,roomCode:P2P.roomCode,seed,hostId:P2P.localId,guestId:P2P.remoteId,token:P2P.remoteToken}; p2pPersistHost();
-    p2pSafeSend({...common,role:'guest',seat:1}); setTimeout(()=>p2pNavigateMatch({...common,role:'host',seat:0}),260);
+    const common={type:'match_start',protocol:P2P_PROTOCOL_VERSION,roomCode:P2P.roomCode,seed,hostId:P2P.localId,guestId:P2P.remoteId,token:P2P.remoteToken}, generation=P2P.generation; p2pPersistHost();
+    p2pSafeSend({...common,role:'guest',seat:1}); setTimeout(()=>{ if(generation===P2P.generation) p2pNavigateMatch({...common,role:'host',seat:0}); },260);
   }
-  function p2pNavigateMatch(info) { const seed=`${info.seed}-seat-${info.seat}`, params=new URLSearchParams({mode:'pvp',seed,p2p:'1',p2pRole:info.role,p2pRoom:info.roomCode,p2pSeed:info.seed,p2pToken:info.token||''}); location.href=`${location.pathname}?${params}`; }
+  function p2pNavigateMatch(info) { const params=new URLSearchParams({mode:'pvp',seed:info.seed,p2p:'1',p2pRole:info.role,p2pRoom:info.roomCode,p2pSeed:info.seed,p2pToken:info.token||''}); location.href=`${location.pathname}?${params}`; }
   function p2pCopyInvite() { if(!P2P.roomCode) return; const message=`PUZZ-LE フレンド対戦\n合言葉: ${P2P.roomCode}\n${location.href.split('?')[0]}`; navigator.clipboard?.writeText(message).then(()=>say('合言葉をコピーしました',1500)).catch(()=>say(`合言葉 ${P2P.roomCode}`,2200)); }
-  function p2pSendResume(conn,cursor=0) {
-    if(!conn?.open) return; const nonce=(conn.__resumeNonce||0)+1; conn.__resumeNonce=nonce;
-    let offset=Math.max(0,Math.min(P2P.eventLog.length,Number(cursor)||0));
+  function p2pResetVisibleForSync() {
+    resetGame(); phase='falling'; toast=''; toastUntil=0; startP2PBoardClock();
+    P2P.eventCursor=0; P2P.localSequence=0; onlineDesync=false; onlineError=''; onlineOpponentState=null;
+    onlineAttackFeed=[]; onlineAttackSentFeed=[]; onlineAttackFlashUntil=0;
+  }
+  function p2pRebindEventPlayers() {
+    for(const event of P2P.eventLog) {
+      event.playerId=event.seat===0?P2P.localId:P2P.remoteId;
+      for(const delivery of event.deliveries||[]) { const targetSeat=Number.isInteger(delivery.targetSeat)?delivery.targetSeat:1-event.seat; delivery.targetSeat=targetSeat; delivery.targetId=targetSeat===0?P2P.localId:P2P.remoteId; }
+    }
+  }
+  function p2pSendResume(conn,cursor=0,reset=false) {
+    if(!conn?.open) return false; const nonce=(conn.__resumeNonce||0)+1; conn.__resumeNonce=nonce;
+    const start=reset?0:Math.max(0,Math.min(P2P.eventLog.length,Number(cursor)||0)); let offset=start, first=true; P2P.resumeInProgress=true;
     const sendNext=()=>{
       if(!conn.open||conn.__resumeNonce!==nonce) return;
       const events=P2P.eventLog.slice(offset,offset+24), next=offset+events.length, complete=next>=P2P.eventLog.length;
-      const opponent=P2P.engines[0]?.api.snapshot?.()||null;
-      if(!p2pSafeSend({type:'resume',protocol:P2P_PROTOCOL_VERSION,events,cursor:next,complete,remoteId:P2P.localId,opponent:complete?opponent:null},conn)) { setTimeout(sendNext,35); return; }
-      offset=next; if(!complete) setTimeout(sendNext,8);
+      const opponent=P2P.engines[0]?.api.snapshot?.()||null, selfAuthority=P2P.engines[1]?.api.snapshot?.()||null;
+      if(!p2pSafeSend({type:'resume',protocol:P2P_PROTOCOL_VERSION,events,from:offset,cursor:next,complete,reset:reset&&first,remoteId:P2P.localId,opponent:complete?opponent:null,selfDigest:complete?selfAuthority?.digest:null},conn)) { setTimeout(sendNext,35); return; }
+      first=false; offset=next;
+      if(!complete) setTimeout(sendNext,8);
+      else { clearTimeout(P2P.syncTimer); P2P.syncTimer=setTimeout(()=>{ if(P2P.resumeInProgress&&P2P.conn===conn) p2pConnectionLost(); },12000); }
     };
-    sendNext();
+    sendNext(); return true;
+  }
+  function p2pBeginHostResume(conn,cursor=0,reset=false) {
+    if(P2P.role!=='host'||!conn?.open||P2P.matchEnded) return;
+    p2pStopGravityClock(true); clearTimeout(P2P.syncTimer); P2P.resumeInProgress=true; p2pSetStatus('syncing','盤面をそろえています'); phase='onlineMatchWait';
+    p2pSafeSend({type:'sync_pause'},conn);
+    const requested=Number(cursor)||0, forceReset=reset||requested<0||requested>P2P.eventLog.length;
+    p2pSendResume(conn,forceReset?0:requested,forceReset);
+  }
+  function p2pCompleteHostSync(message,conn) {
+    if(P2P.role!=='host'||P2P.conn!==conn||!P2P.resumeInProgress) return;
+    clearTimeout(P2P.syncTimer); P2P.syncTimer=null;
+    const accepted=message.ok===true&&Number(message.cursor)===P2P.eventLog.length;
+    if(!accepted) {
+      if(P2P.syncAttempts++<2) { p2pBeginHostResume(conn,0,true); return; }
+      P2P.resumeInProgress=false; p2pSetStatus('error','盤面をそろえられませんでした'); phase='onlineMatchWait'; p2pSafeSend({type:'sync_failed'},conn); return;
+    }
+    P2P.resumeInProgress=false; P2P.syncAttempts=0; onlineDesync=false; onlineError=''; phase='falling'; ensureP2PBoardClock(); p2pSetStatus('active'); p2pStartGravityClock();
+    p2pSafeSend({type:'match_active',cursor:P2P.eventLog.length},conn);
+  }
+  function p2pRepairHostVisible() {
+    if(P2P.role!=='host'||P2P.resumeInProgress||P2P.repairTimer||P2P.matchEnded) return;
+    p2pStopGravityClock(true); P2P.resumeInProgress=true; p2pSetStatus('syncing','盤面を作り直しています'); phase='onlineMatchWait'; p2pSafeSend({type:'sync_pause'});
+    P2P.repairTimer=setTimeout(()=>{ P2P.repairTimer=null; const history=[...P2P.eventLog]; p2pResetVisibleForSync(); p2pApplyEvents(history,{requestSync:false}); const localAuthority=P2P.engines[0]?.api.snapshot?.(); if(localAuthority&&onlineClientDigest()!==localAuthority.digest) onlineDesync=true; onlineOpponentState=P2P.engines[1]?.api.snapshot?.()||onlineOpponentState; P2P.resumeInProgress=false; if(onlineDesync) { p2pSetStatus('error','盤面を作り直せませんでした'); phase='onlineMatchWait'; p2pSafeSend({type:'sync_failed'}); return; } p2pBeginHostResume(P2P.conn,0,true); },0);
+  }
+  function p2pRequestFullSync(reason='digest') {
+    if(!P2P_MATCH_ENABLED||P2P.matchEnded) return;
+    onlineDesync=true; onlineError='盤面をそろえ直しています';
+    if(P2P.role==='host') { p2pRepairHostVisible(); return; }
+    if(P2P.resumeInProgress) return;
+    P2P.resumeInProgress=true; p2pSetStatus('syncing','盤面をそろえ直しています'); phase='onlineMatchWait';
+    if(!p2pSafeSend({type:'sync_request',cursor:0,reset:true,reason})) p2pConnectionLost();
   }
 
   function p2pHandleMessage(message,conn) {
@@ -2273,57 +2378,135 @@
       if(P2P.conn?.open&&P2P.conn!==conn&&!reconnect) { p2pSafeSend({type:'reject',reason:'room-full'},conn); conn.close(); return; }
       if(P2P.remoteToken&&!reconnect) { p2pSafeSend({type:'reject',reason:'token'},conn); conn.close(); return; }
       try { if(P2P.conn&&P2P.conn!==conn) P2P.conn.close(); } catch(_) {}
-      P2P.conn=conn; P2P.remoteId=creatorText(message.playerId,80); P2P.remoteToken=P2P.remoteToken||message.token||p2pToken();
-      if(P2P_MATCH_ENABLED) { p2pSendResume(conn,message.cursor); p2pSafeSend({type:'match_active'},conn); p2pSetStatus('active'); phase='falling'; gravityAt=Infinity; }
+      P2P.conn=conn; P2P.remoteId=creatorText(message.playerId,80); P2P.remoteToken=P2P.remoteToken||message.token||p2pToken(); p2pRebindEventPlayers();
+      if(P2P_MATCH_ENABLED) p2pBeginHostResume(conn,message.cursor,!!message.reset);
       else { onlineRoom.players=[{id:P2P.localId,seat:0},{id:P2P.remoteId,seat:1}]; onlineRoom.status='ready'; p2pSetStatus('ready'); p2pSafeSend({type:'welcome',token:P2P.remoteToken,hostId:P2P.localId},conn); setTimeout(p2pStartLobbyMatch,650); }
       p2pStartHeartbeat(); p2pPersistHost(); return;
     }
     if(message.type==='welcome') { P2P.token=message.token||P2P.token; P2P.remoteId=message.hostId||''; onlineRoom.players=[{id:P2P.remoteId,seat:0},{id:P2P.localId,seat:1}]; onlineRoom.status='ready'; p2pSetStatus('ready'); p2pStartHeartbeat(); return; }
     if(message.type==='match_start') { p2pNavigateMatch(message); return; }
     if(message.type==='input'&&P2P.role==='host') { p2pHostAcceptInput(P2P.remoteId,message.sequence,message.action); return; }
-    if(message.type==='sync_request'&&P2P.role==='host') { p2pSendResume(conn,message.cursor); return; }
-    if(message.type==='peer_input') { p2pApplyEvents(message.events||[]); return; }
-    if(message.type==='resume') { P2P.remoteId=message.remoteId||P2P.remoteId; phase='falling'; gravityAt=Infinity; p2pApplyEvents(message.events||[]); if(P2P.eventCursor>=(Number(message.cursor)||0)) P2P.eventCursor=Math.max(P2P.eventCursor,Number(message.cursor)||0); onlineOpponentState=message.opponent||onlineOpponentState; if(message.complete) { onlineDesync=false; p2pSetStatus('active'); phase='falling'; gravityAt=Infinity; } return; }
-    if(message.type==='match_active') { p2pSetStatus('active'); phase='falling'; gravityAt=Infinity; say('フレンド対戦　接続しました',1600); return; }
-    if(message.type==='match_complete') { onlineMatchResult=message.result; P2P.matchEnded=true; phase='onlineResult'; return; }
+    if(message.type==='sync_request'&&P2P.role==='host') { p2pBeginHostResume(conn,message.cursor,!!message.reset); return; }
+    if(message.type==='sync_ack'&&P2P.role==='host') { p2pCompleteHostSync(message,conn); return; }
+    if(message.type==='sync_pause') { P2P.resumeInProgress=true; p2pSetStatus('syncing','盤面をそろえています'); phase='onlineMatchWait'; return; }
+    if(message.type==='peer_input') { if(P2P.status==='active'&&!P2P.resumeInProgress) p2pApplyEvents(message.events||[]); return; }
+    if(message.type==='resume') { P2P.remoteId=message.remoteId||P2P.remoteId; P2P.resumeInProgress=true; if(message.reset) p2pResetVisibleForSync(); phase='falling'; ensureP2PBoardClock(); p2pApplyEvents(message.events||[],{requestSync:false}); onlineOpponentState=message.opponent||onlineOpponentState; if(message.complete) { if(message.selfDigest&&onlineClientDigest()!==message.selfDigest) onlineDesync=true; phase='onlineMatchWait'; p2pSetStatus('syncing',onlineDesync?'もう一度そろえ直しています':'開始を待っています'); p2pSafeSend({type:'sync_ack',cursor:P2P.eventCursor,ok:!onlineDesync},conn); } return; }
+    if(message.type==='match_active') { if(Number(message.cursor)!==P2P.eventCursor||onlineDesync) { P2P.resumeInProgress=false; p2pRequestFullSync('active-cursor'); return; } clearTimeout(P2P.syncTimer); P2P.syncTimer=null; P2P.resumeInProgress=false; P2P.syncAttempts=0; phase='falling'; ensureP2PBoardClock(); p2pSetStatus('active'); onlineError=''; say('フレンド対戦　接続しました',1600); return; }
+    if(message.type==='sync_failed') { P2P.resumeInProgress=false; p2pSetStatus('error','盤面をそろえられませんでした'); phase='onlineMatchWait'; return; }
+    if(message.type==='match_complete') { onlineMatchResult=message.result; P2P.matchEnded=true; p2pStopGravityClock(true); phase='onlineResult'; return; }
     if(message.type==='rematch_request'&&P2P.role==='host') { P2P.rematch.add(P2P.remoteId); p2pMaybeRematch(); return; }
     if(message.type==='rematch_start') { p2pNavigateMatch(message); return; }
-    if(message.type==='host_left') { P2P.matchEnded=true; p2pSetStatus('error','ホストが対戦を終了しました'); phase='onlineMatchWait'; return; }
+    if(message.type==='host_left') { P2P.matchEnded=true; p2pStopGravityClock(true); p2pSetStatus('error','ホストが対戦を終了しました'); phase='onlineMatchWait'; return; }
+    if(message.type==='guest_left'&&P2P.role==='host') { P2P.matchEnded=true; p2pStopGravityClock(true); p2pSetStatus('error','相手が対戦を終了しました'); phase='onlineMatchWait'; return; }
   }
 
-  function p2pStartHeartbeat() { clearInterval(P2P.heartbeatTimer); P2P.lastRx=Date.now(); P2P.heartbeatTimer=setInterval(()=>{ if(P2P.conn?.open) p2pSafeSend({type:'ping',at:Date.now()}); if(P2P.role==='guest'&&Date.now()-P2P.lastRx>15000) p2pConnectionLost(); },P2P_HEARTBEAT_MS); }
-  function p2pConnectionLost() { if(P2P.intentional||P2P.matchEnded) return; if(P2P.role==='host') { p2pSetStatus('reconnecting','相手の復帰を待っています'); phase=P2P_MATCH_ENABLED?'onlineMatchWait':phase; return; } if(P2P.status==='reconnecting') return; P2P.reconnectDeadline=Date.now()+P2P_RECONNECT_MS; P2P.reconnectAttempt=0; p2pSetStatus('reconnecting','接続を戻しています'); phase=P2P_MATCH_ENABLED?'onlineMatchWait':phase; p2pReconnectGuest(); }
-  function p2pReconnectGuest() { clearTimeout(P2P.reconnectTimer); if(P2P.intentional||Date.now()>P2P.reconnectDeadline) { p2pSetStatus('error','復帰できませんでした'); return; } const delay=Math.min(5000,500*2**Math.min(4,P2P.reconnectAttempt++)); P2P.reconnectTimer=setTimeout(()=>{ try { P2P.conn?.close(); P2P.peer?.destroy(); } catch(_) {} if(!p2pPeerAvailable()) return; const peer=new Peer(undefined,{debug:0}); P2P.peer=peer; peer.on('open',()=>{ const conn=peer.connect(P2P.roomId,{reliable:true,serialization:'json'}); P2P.conn=conn; p2pAttachCommon(conn); conn.on('open',()=>p2pSafeSend({type:'hello',protocol:P2P_PROTOCOL_VERSION,playerId:P2P.localId,token:P2P.token,cursor:P2P.eventCursor,mode:P2P_MATCH_ENABLED?'match':'lobby'})); }); peer.on('error',()=>p2pReconnectGuest()); },delay); }
+  function p2pStartHeartbeat() { clearInterval(P2P.heartbeatTimer); P2P.lastRx=Date.now(); P2P.heartbeatTimer=setInterval(()=>{ if(P2P.conn?.open) p2pSafeSend({type:'ping',at:Date.now()}); if(Date.now()-P2P.lastRx>15000) p2pConnectionLost(); },P2P_HEARTBEAT_MS); }
+  function p2pConnectionLost() { if(P2P.intentional||P2P.matchEnded) return; clearInterval(P2P.heartbeatTimer); P2P.heartbeatTimer=null; clearTimeout(P2P.syncTimer); P2P.syncTimer=null; P2P.resumeInProgress=false; if(P2P.role==='host') { p2pStopGravityClock(true); p2pSetStatus('reconnecting','相手の復帰を待っています'); phase=P2P_MATCH_ENABLED?'onlineMatchWait':phase; return; } if(P2P.status==='reconnecting') return; P2P.reconnectDeadline=Date.now()+P2P_RECONNECT_MS; P2P.reconnectAttempt=0; p2pSetStatus('reconnecting','接続を戻しています'); phase=P2P_MATCH_ENABLED?'onlineMatchWait':phase; p2pReconnectGuest(); }
+  function p2pReconnectGuest() { clearTimeout(P2P.reconnectTimer); if(P2P.intentional||Date.now()>P2P.reconnectDeadline) { p2pSetStatus('error','復帰できませんでした'); return; } const delay=Math.min(5000,500*2**Math.min(4,P2P.reconnectAttempt++)), generation=P2P.generation; P2P.reconnectTimer=setTimeout(()=>{ try { P2P.conn?.close(); P2P.peer?.destroy(); } catch(_) {} if(generation!==P2P.generation||!p2pPeerAvailable()) return; const peer=new Peer(undefined,{debug:0}); P2P.peer=peer; peer.on('open',()=>{ if(generation!==P2P.generation||peer!==P2P.peer) return; const conn=peer.connect(P2P.roomId,{reliable:true,serialization:'json'}); P2P.conn=conn; p2pAttachCommon(conn); conn.on('open',()=>{ p2pStartHeartbeat(); p2pSafeSend({type:'hello',protocol:P2P_PROTOCOL_VERSION,playerId:P2P.localId,token:P2P.token,cursor:onlineDesync?0:P2P.eventCursor,reset:onlineDesync,mode:P2P_MATCH_ENABLED?'match':'lobby'}); }); }); peer.on('error',()=>{ if(generation===P2P.generation&&peer===P2P.peer) p2pReconnectGuest(); }); },delay); }
 
   async function p2pCreateEngine(seat) {
     const iframe=document.createElement('iframe'); iframe.tabIndex=-1; iframe.setAttribute('aria-hidden','true');
-    const params=new URLSearchParams({mode:'pvp',seed:`${P2P.seed}-seat-${seat}`,p2pHeadless:'1'}); iframe.src=`${location.pathname}?${params}`; p2pAuthorityRoot.appendChild(iframe);
-    await new Promise((resolve,reject)=>{ const timer=setTimeout(()=>reject(new Error('authority timeout')),12000); iframe.onload=()=>{clearTimeout(timer);resolve();}; });
-    const api=iframe.contentWindow.__PUZZLE_P2P_API__; if(!api) throw new Error('authority api missing'); api.start(); return {iframe,api,attackCursor:0};
+    const params=new URLSearchParams({mode:'pvp',seed:P2P.seed,p2pHeadless:'1'}), clone=document.documentElement.cloneNode(true);
+    clone.querySelector('#p2p-authority')?.replaceChildren(); clone.querySelector('#pwa-update-notice')?.remove();
+    const base=document.createElement('base'); base.href=new URL('./',location.href).href; clone.querySelector('head')?.prepend(base);
+    iframe.dataset.p2pHeadless='1'; iframe.dataset.p2pParams=params.toString();
+    const loaded=new Promise((resolve,reject)=>{ const timer=setTimeout(()=>reject(new Error(`authority-${seat}-timeout`)),12000); iframe.onload=()=>{clearTimeout(timer);resolve();}; iframe.onerror=()=>{clearTimeout(timer);reject(new Error(`authority-${seat}-load`));}; });
+    iframe.srcdoc=`<!doctype html>${clone.outerHTML}`; p2pAuthorityRoot.appendChild(iframe); await loaded;
+    const api=iframe.contentWindow.__PUZZLE_P2P_API__; if(!api) throw new Error(`authority-${seat}-api-missing`); if(api.protocol!==P2P_PROTOCOL_VERSION) throw new Error(`authority-${seat}-version-${api.protocol||'unknown'}`); api.start(); return {iframe,api,attackCursor:0};
   }
   function p2pEngineInput(engine,action) { const state=engine.api.input(action), attacks=(state.attacks||[]).slice(engine.attackCursor); engine.attackCursor=(state.attacks||[]).length; return {...state,newAttacks:attacks}; }
+  function p2pEngineAdvance(engine,atMs) { const state=engine.api.advanceTo(atMs), attacks=(state.attacks||[]).slice(engine.attackCursor); engine.attackCursor=(state.attacks||[]).length; return {...state,newAttacks:attacks}; }
+  function p2pAuthorityState(state) { return {turn:state.turn,score:state.score,digest:state.digest,phase:state.phase,board:state.board,active:state.active,clockMs:state.clockMs}; }
+  function p2pDeliveries(state,seat) {
+    const targetSeat=1-seat, targetId=targetSeat===0?P2P.localId:P2P.remoteId, target=P2P.engines[targetSeat];
+    const deliveries=(state.newAttacks||[]).map(attack=>({targetSeat,targetId,attack:{...attack,timing:'next-lock'}}));
+    if(deliveries.length) target.api.receiveAttacks(deliveries.map(item=>item.attack));
+    return deliveries;
+  }
+  function p2pFinishFromState(state,loserSeat,broadcast=true) {
+    if(state.phase!=='gameover'||P2P.matchEnded) return;
+    const loserId=loserSeat===0?P2P.localId:P2P.remoteId, winnerId=loserSeat===0?P2P.remoteId:P2P.localId;
+    const result={winnerId,loserId,reason:state.reason||'TOP OUT',ratingDelta:0};
+    P2P.matchEnded=true; p2pStopGravityClock(true); onlineMatchResult=result; phase='onlineResult';
+    if(broadcast) p2pSafeSend({type:'match_complete',result});
+    p2pPersistHost();
+  }
   async function p2pBuildAuthority() {
     for(const engine of P2P.engines) try { engine.iframe.remove(); } catch(_) {} P2P.engines=[];
-    P2P.engines=await Promise.all([p2pCreateEngine(0),p2pCreateEngine(1)]); onlineOpponentState=P2P.engines[1].api.snapshot();
-    const stored=[...P2P.eventLog]; P2P.eventLog=[]; for(const old of stored) p2pHostAcceptInput(old.seat===0?P2P.localId:P2P.remoteId,old.sequence,old.action,true);
+    P2P.engines=await Promise.all([p2pCreateEngine(0),p2pCreateEngine(1)]); P2P.lastSequence.clear();
+    const stored=[...P2P.eventLog]; P2P.eventLog=[];
+    for(const old of stored) {
+      if(old.system) p2pHostAdvanceSeat(old.seat,old.atMs,true);
+      else p2pHostAcceptInput(old.seat===0?P2P.localId:P2P.remoteId,old.sequence,old.action,true,old.atMs);
+    }
+    onlineOpponentState=P2P.engines[1].api.snapshot();
   }
-  function p2pHostAcceptInput(playerId,sequence,action,rebuilding=false) {
-    if(P2P.role!=='host'||P2P.engines.length!==2||!['left','right','down','rotateLeft','rotateRight','drop','confirm','reserve'].includes(action)) return;
-    const seat=playerId===P2P.localId?0:1, last=P2P.lastSequence.get(playerId)??-1; if(!rebuilding&&(!Number.isInteger(sequence)||sequence<=last)) return; P2P.lastSequence.set(playerId,sequence);
-    const source=P2P.engines[seat], target=P2P.engines[1-seat], state=p2pEngineInput(source,action), targetId=seat===0?P2P.remoteId:P2P.localId;
-    const deliveries=state.newAttacks.map(attack=>({targetId,attack:{...attack,timing:'next-lock'}})); if(deliveries.length) target.api.receiveAttacks(deliveries.map(item=>item.attack));
-    const event={index:P2P.eventLog.length,playerId,seat,sequence,action,authority:{turn:state.turn,score:state.score,digest:state.digest,phase:state.phase,board:state.board},deliveries}; P2P.eventLog.push(event);
+  function p2pHostAdvanceSeat(seat,atMs,rebuilding=false) {
+    if(P2P.role!=='host'||P2P.engines.length!==2||![0,1].includes(seat)) return;
+    const source=P2P.engines[seat], playerId=seat===0?P2P.localId:P2P.remoteId, state=p2pEngineAdvance(source,Math.max(0,Number(atMs)||0));
+    const event={index:P2P.eventLog.length,playerId,seat,sequence:null,action:'gravity',system:true,atMs:Math.max(0,Number(atMs)||0),authority:p2pAuthorityState(state),deliveries:p2pDeliveries(state,seat)};
+    P2P.eventLog.push(event);
     if(!rebuilding) { p2pApplyEvents([event]); p2pSafeSend({type:'peer_input',events:[event]}); p2pSchedulePersist(); }
-    if(state.phase==='gameover'&&!P2P.matchEnded) { const result={winnerId:targetId,loserId:playerId,reason:state.reason||'TOP OUT',ratingDelta:0}; P2P.matchEnded=true; onlineMatchResult=result; phase='onlineResult'; p2pSafeSend({type:'match_complete',result}); p2pPersistHost(); }
+    p2pFinishFromState(state,seat,!rebuilding);
+    return state;
   }
-  function p2pApplyEvents(events) { for(const event of events) { if(!Number.isInteger(event?.index)||event.index<P2P.eventCursor) continue; if(event.index>P2P.eventCursor) { onlineDesync=true; p2pSetStatus('syncing','入力を再同期しています'); if(P2P.role==='guest') p2pSafeSend({type:'sync_request',cursor:P2P.eventCursor}); return; } if(event.playerId===P2P.localId) { applyAuthoritativeInput(event); P2P.localSequence=Math.max(P2P.localSequence,(Number(event.sequence)||0)+1); } else onlineOpponentState=event.authority||onlineOpponentState; for(const delivery of event.deliveries||[]) if(delivery.targetId===P2P.localId) receiveOnlineAttack(delivery.attack,event.playerId); P2P.eventCursor++; } if(P2P_MATCH_ENABLED) { document.documentElement.dataset.p2pCursor=String(P2P.eventCursor); document.documentElement.dataset.p2pTurn=String(turn); document.documentElement.dataset.p2pOpponentTurn=String(onlineOpponentState?.turn??0); document.documentElement.dataset.p2pDesync=onlineDesync?'1':'0'; } }
-  function p2pSendInput(action) { if(P2P.status!=='active'&&phase!=='falling') return; const sequence=P2P.localSequence++; if(P2P.role==='host') p2pHostAcceptInput(P2P.localId,sequence,action); else if(!p2pSafeSend({type:'input',sequence,action})) p2pConnectionLost(); }
+  function p2pHostFlushTime(atMs) {
+    if(P2P.role!=='host'||P2P.engines.length!==2||P2P.matchEnded) return;
+    const target=Math.max(0,Number(atMs)||0);
+    for(const seat of [0,1]) {
+      let guard=0;
+      while(!P2P.matchEnded&&Number(P2P.engines[seat].api.nextDue())<=target&&guard++<8) p2pHostAdvanceSeat(seat,target);
+    }
+  }
+  function p2pHostAcceptInput(playerId,sequence,action,rebuilding=false,storedAtMs=null) {
+    if(P2P.role!=='host'||P2P.engines.length!==2||(!rebuilding&&(P2P.status!=='active'||P2P.resumeInProgress))||!['left','right','down','rotateLeft','rotateRight','drop','confirm','reserve'].includes(action)) return;
+    const seat=playerId===P2P.localId?0:1, last=P2P.lastSequence.get(playerId)??-1; if(!rebuilding&&(!Number.isInteger(sequence)||sequence<=last)) return; P2P.lastSequence.set(playerId,sequence);
+    const atMs=rebuilding?Math.max(0,Number(storedAtMs)||0):p2pClockNow();
+    if(!rebuilding) { p2pHostFlushTime(atMs); if(P2P.matchEnded) return; }
+    const source=P2P.engines[seat]; p2pEngineAdvance(source,atMs);
+    const state=p2pEngineInput(source,action), deliveries=p2pDeliveries(state,seat);
+    const event={index:P2P.eventLog.length,playerId,seat,sequence,action,system:false,atMs,authority:p2pAuthorityState(state),deliveries}; P2P.eventLog.push(event);
+    if(!rebuilding) { p2pApplyEvents([event]); p2pSafeSend({type:'peer_input',events:[event]}); p2pSchedulePersist(); }
+    p2pFinishFromState(state,seat,!rebuilding);
+  }
+  function p2pApplyEvents(events,options={}) {
+    const localSeat=P2P.role==='host'?0:1, requestSync=options.requestSync!==false;
+    for(const event of events) {
+      if(!Number.isInteger(event?.index)||event.index<P2P.eventCursor) continue;
+      if(event.index>P2P.eventCursor) { onlineDesync=true; onlineError='入力履歴をそろえ直しています'; if(requestSync) p2pRequestFullSync('event-gap'); return false; }
+      if(event.seat===localSeat) { if(event.system) applyAuthoritativeClock(event); else { applyAuthoritativeInput(event); P2P.localSequence=Math.max(P2P.localSequence,(Number(event.sequence)||0)+1); } }
+      else onlineOpponentState=event.authority||onlineOpponentState;
+      for(const delivery of event.deliveries||[]) if(delivery.targetSeat===localSeat||(!Number.isInteger(delivery.targetSeat)&&delivery.targetId===P2P.localId)) receiveOnlineAttack(delivery.attack,event.playerId);
+      P2P.eventCursor++;
+    }
+    if(P2P_MATCH_ENABLED) { document.documentElement.dataset.p2pCursor=String(P2P.eventCursor); document.documentElement.dataset.p2pTurn=String(turn); document.documentElement.dataset.p2pOpponentTurn=String(onlineOpponentState?.turn??0); document.documentElement.dataset.p2pActiveY=String(active?.y??''); document.documentElement.dataset.p2pActiveSpec=active?`${active.type}:${active.colors.join(',')}`:''; document.documentElement.dataset.p2pClock=String(Math.round(p2pClockMs)); document.documentElement.dataset.p2pDesync=onlineDesync?'1':'0'; }
+    if(onlineDesync&&requestSync) p2pRequestFullSync('digest');
+    return !onlineDesync;
+  }
+  function p2pSendInput(action) { if(P2P.status!=='active'||phase!=='falling'||P2P.resumeInProgress) return; const sequence=P2P.localSequence++; if(P2P.role==='host') p2pHostAcceptInput(P2P.localId,sequence,action); else if(!p2pSafeSend({type:'input',sequence,action})) p2pConnectionLost(); }
   function p2pRequestRematch() { if(!P2P_MATCH_ENABLED) return; onlineRematchRequested=true; P2P.rematch.add(P2P.localId); if(P2P.role==='host') p2pMaybeRematch(); else p2pSafeSend({type:'rematch_request'}); }
-  function p2pMaybeRematch() { if(P2P.role!=='host'||P2P.rematch.size<2) return; const seed=`p2p-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, common={type:'rematch_start',roomCode:P2P.roomCode,seed,token:P2P.remoteToken}; p2pSafeSend({...common,role:'guest',seat:1}); setTimeout(()=>p2pNavigateMatch({...common,role:'host',seat:0}),260); }
+  function p2pMaybeRematch() { if(P2P.role!=='host'||P2P.rematch.size<2) return; const seed=`p2p-${Date.now()}-${Math.random().toString(36).slice(2,8)}`, common={type:'rematch_start',roomCode:P2P.roomCode,seed,token:P2P.remoteToken}, generation=P2P.generation; p2pSafeSend({...common,role:'guest',seat:1}); setTimeout(()=>{ if(generation===P2P.generation) p2pNavigateMatch({...common,role:'host',seat:0}); },260); }
+  async function p2pPrepareAuthorityState() {
+    await p2pBuildAuthority(); p2pResetVisibleForSync();
+    const applied=p2pApplyEvents(P2P.eventLog,{requestSync:false}), visible=onlineClientDigest(), expected=P2P.engines[0]?.api.snapshot().digest;
+    if(!applied||visible!==expected) throw new Error(`visible-authority-mismatch-${visible}-${expected||'missing'}`);
+    onlineOpponentState=P2P.engines[1].api.snapshot();
+    P2P.clockOffset=Math.max(P2P.clockOffset,0,...P2P.eventLog.map(event=>Number(event.atMs)||0)); phase='onlineMatchWait';
+  }
   if(typeof addEventListener==='function') addEventListener('pagehide',()=>{ if(P2P.role==='host') p2pPersistHost(); });
   async function p2pStartMatchTransport() {
-    if(!p2pPeerAvailable()) return; P2P.intentional=false; P2P.role=P2P_ROLE; P2P.roomCode=p2pNormalizeCode(P2P_ROOM_CODE); P2P.roomId=p2pRoomId(P2P.roomCode); P2P.seed=P2P_MATCH_SEED; P2P.token=P2P_RECONNECT_TOKEN; P2P.localId=p2pLocalPlayerId(); P2P.status='connecting'; onlineStatus='connecting'; phase='onlineMatchWait'; gravityAt=Infinity;
-    if(P2P.role==='host') { const saved=p2pReadHostState(); if(saved) { P2P.localId=saved.localId||P2P.localId; try { sessionStorage.setItem('puzzle-le-p2p-player-v1',P2P.localId); } catch(_) {} P2P.remoteId=saved.remoteId||''; P2P.remoteToken=saved.remoteToken||P2P.token; P2P.eventLog=Array.isArray(saved.history)?saved.history:(Array.isArray(saved.eventLog)?saved.eventLog:[]); } try { await p2pBuildAuthority(); resetGame(); phase='falling'; toast=''; toastUntil=0; onlineDesync=false; P2P.eventCursor=0; p2pApplyEvents(P2P.eventLog); phase='onlineMatchWait'; gravityAt=Infinity; } catch(error) { p2pSetStatus('error','対戦盤面を準備できません'); return; } const peer=new Peer(P2P.roomId,{debug:0}); P2P.peer=peer; peer.on('open',()=>p2pSetStatus('hosting')); peer.on('connection',conn=>p2pAcceptHostConnection(conn,true)); peer.on('disconnected',()=>{if(!P2P.intentional)try{peer.reconnect();}catch(_){}}); peer.on('error',()=>p2pSetStatus('error','ホスト接続を作れません')); }
+    if(!p2pPeerAvailable()) return; P2P.intentional=false; P2P.role=P2P_ROLE; P2P.roomCode=p2pNormalizeCode(P2P_ROOM_CODE); P2P.roomId=p2pRoomId(P2P.roomCode); P2P.seed=P2P_MATCH_SEED; P2P.token=P2P_RECONNECT_TOKEN; P2P.localId=p2pLocalPlayerId(); P2P.status='connecting'; P2P.resumeInProgress=false; P2P.syncAttempts=0; onlineStatus='connecting'; phase='onlineMatchWait'; gravityAt=Infinity; const generation=P2P.generation;
+    if(P2P.role==='host') {
+      const saved=p2pReadHostState();
+      if(saved) { P2P.localId=saved.localId||P2P.localId; try { sessionStorage.setItem('puzzle-le-p2p-player-v1',P2P.localId); } catch(_) {} P2P.remoteId=saved.remoteId||''; P2P.remoteToken=saved.remoteToken||P2P.token; P2P.clockOffset=Math.max(0,Number(saved.clockMs)||0); P2P.eventLog=Array.isArray(saved.history)?saved.history:(Array.isArray(saved.eventLog)?saved.eventLog:[]); }
+      let preparationError=null;
+      for(let attempt=0;attempt<2;attempt++) {
+        try { await p2pPrepareAuthorityState(); preparationError=null; break; }
+        catch(error) { preparationError=error; for(const engine of P2P.engines) try { engine.iframe.remove(); } catch(_) {} P2P.engines=[]; if(attempt===0) await new Promise(resolve=>setTimeout(resolve,80)); }
+      }
+      if(preparationError) { console.error('P2P authority preparation failed',preparationError); document.documentElement.dataset.p2pFailure=preparationError.message||'unknown'; p2pSetStatus('error','対戦盤面を準備できません。もう一度お試しください'); return; }
+      const peer=new Peer(P2P.roomId,{debug:0}); P2P.peer=peer; peer.on('open',()=>{ if(generation===P2P.generation) p2pSetStatus('hosting'); }); peer.on('connection',conn=>{ if(generation===P2P.generation) p2pAcceptHostConnection(conn,true); else try { conn.close(); } catch(_) {} }); peer.on('disconnected',()=>{if(generation===P2P.generation&&!P2P.intentional)try{peer.reconnect();}catch(_){}}); peer.on('error',()=>{ if(generation===P2P.generation) p2pSetStatus('error','ホスト接続を作れません'); });
+    }
     else { P2P.reconnectDeadline=Date.now()+P2P_RECONNECT_MS; p2pReconnectGuest(); }
   }
   function togglePause() {
@@ -2634,6 +2817,7 @@
     if(name==='help') { if(phase==='puzzleEditor') { editorGoalIndex=(editorGoalIndex+1)%EDITOR_GOALS.length; return; } toggleHelp(); return; }
     if(helpOpen) { if(['pause','cancel'].includes(name)) toggleHelp(); return; }
     if(tutorialOpen) { if(['start','confirm','drop'].includes(name)) advanceTutorial(); if(['cancel','pause'].includes(name)) tutorialOpen=false; return; }
+    if(P2P_MATCH_ENABLED&&phase==='falling'&&['pause','cancel'].includes(name)) { say('対戦中はポーズできません',1300); return; }
     if(P2P_MATCH_ENABLED && phase==='falling' && !onlineApplying && ['left','right','down','rotateLeft','rotateRight','drop','confirm','reserve'].includes(name)) { p2pSendInput(name); return; }
     if(ONLINE_MATCH_ENABLED && phase==='falling' && !onlineApplying && ['left','right','down','rotateLeft','rotateRight','drop','confirm','reserve'].includes(name)) { onlineSend('input',{roomId:ONLINE_ROOM_FROM_LINK,inputs:[{sequence:onlineSequence++,action:name}]}); return; }
     if(!['pause','start','cancel'].includes(name)) runLog.push({turn,action:name});
@@ -2668,6 +2852,7 @@
     if(phase==='trainingIntro') { if(['confirm','start'].includes(name)) { startTrainingCourse(); return; } if(['cancel','pause'].includes(name)) { try { localStorage.setItem('puzzle-le-ranked-tutorial-v1','seen'); } catch(_) {} phase='falling'; gravityAt=performance.now()+gravityInterval(); return; } return; }
     if(phase==='onlineLobby') { const options=3; if(name==='left'||name==='up'||name==='rotateLeft') { onlineLobbyIndex=(onlineLobbyIndex+options-1)%options; return; } if(name==='right'||name==='down'||name==='rotateRight') { onlineLobbyIndex=(onlineLobbyIndex+1)%options; return; } if(name==='cancel'||name==='pause') { p2pLeave(true); return; } if(name==='reserve') { if(P2P.roomCode) p2pCopyInvite(); else p2pStartQuick(); return; } if(['confirm','start'].includes(name)) { if(P2P.roomCode&&['hosting','ready','quickWaiting'].includes(P2P.status)) { p2pCopyInvite(); return; } if(onlineLobbyIndex===0) p2pOpenCode('host'); else if(onlineLobbyIndex===1) p2pOpenCode('join'); else p2pStartQuick(); return; } return; }
     if(phase==='onlineSpectator') { if(name==='cancel'||name==='pause') { phase='title'; try { onlineSocket?.close(); } catch(_) {} } return; }
+    if(phase==='onlineMatchWait') { if(name==='cancel'||name==='pause') { if(P2P_MATCH_ENABLED) p2pLeave(true); else closeOnlineLobby(); } return; }
     if(phase==='draft') {
       if(name==='left'||name==='rotateLeft'||name==='up') { draftMenuIndex=(draftMenuIndex+draftOffers.length-1)%draftOffers.length; return; }
       if(name==='right'||name==='rotateRight'||name==='down') { draftMenuIndex=(draftMenuIndex+1)%draftOffers.length; return; }
@@ -2734,6 +2919,8 @@
     }
   }
   window.addEventListener('keydown', e=>{
+    if(QUERY.has('debug')&&e.key==='F9'&&P2P_MATCH_ENABLED&&active) { e.preventDefault(); active={...active,x:active.x+(active.x<5?1:-1)}; document.documentElement.dataset.p2pFaultInjected='1'; return; }
+    if(QUERY.has('debug')&&e.key==='F10'&&P2P_MATCH_ENABLED) { e.preventDefault(); try { P2P.conn?.close(); } catch(_) {} document.documentElement.dataset.p2pDisconnectInjected='1'; return; }
     if(e.key==='F8') { e.preventDefault(); restoreAllInputDefaults('緊急復旧: 操作設定を初期状態へ戻しました'); openSettings(); return; }
     if(settingsOpen) { e.preventDefault(); handleSettingsKey(e); return; }
     if(e.key.toLowerCase()==='v') { e.preventDefault(); cycleSfxVolume(); return; }
@@ -2795,14 +2982,38 @@
   function portraitLandscapeShell() {
     return document.documentElement.dataset.portraitShellTest==='1' || (touchCapable && matchMedia('(orientation: portrait) and (pointer: coarse)').matches);
   }
+  let fullscreenRequestPending=false;
+  function fullscreenElement() { return document.fullscreenElement||document.webkitFullscreenElement||null; }
+  function installedFullscreenMode() { return matchMedia('(display-mode: fullscreen)').matches; }
+  function installedAppMode() { return installedFullscreenMode()||matchMedia('(display-mode: standalone)').matches||navigator.standalone===true; }
+  function lockAppOrientation() {
+    // The OS stays portrait-locked; CSS rotates the complete game shell.
+    try { return Promise.resolve(window.screen?.orientation?.lock?.('portrait-primary')).catch(()=>{}); }
+    catch(_) { return Promise.resolve(); }
+  }
+  function requestAppFullscreen(silent=false) {
+    if(fullscreenElement()||installedFullscreenMode()) { lockAppOrientation(); return Promise.resolve(true); }
+    if(fullscreenRequestPending) return Promise.resolve(false);
+    const element=document.documentElement, request=element.requestFullscreen||element.webkitRequestFullscreen;
+    if(!request) { if(!silent) say(installedAppMode()?'ホーム画面版ではこの表示が最大です':'このブラウザでは全画面を使えません',1800); return Promise.resolve(false); }
+    fullscreenRequestPending=true;
+    let result;
+    try { result=request.call(element,{navigationUI:'hide'}); }
+    catch(_) { try { result=request.call(element); } catch(error) { result=Promise.reject(error); } }
+    return Promise.resolve(result).then(()=>lockAppOrientation()).then(()=>true).catch(()=>{ if(!silent) say('全画面に切り替えられませんでした',1600); return false; }).finally(()=>{fullscreenRequestPending=false;});
+  }
   function toggleFullscreenMode() {
-    const action=document.fullscreenElement ? document.exitFullscreen?.bind(document) : document.documentElement.requestFullscreen?.bind(document.documentElement);
-    if(!action) { say('このブラウザでは全画面を使えません',1600); return; }
-    Promise.resolve(action()).then(()=>screen.orientation?.lock?.('landscape').catch(()=>{})).catch(()=>say('全画面に切り替えられませんでした',1600));
+    if(fullscreenElement()) {
+      const exit=document.exitFullscreen||document.webkitExitFullscreen;
+      if(exit) Promise.resolve(exit.call(document)).catch(()=>say('全画面を終了できませんでした',1600));
+      return;
+    }
+    if(installedFullscreenMode()) { say('アプリ全画面で固定中',1400); return; }
+    requestAppFullscreen(false);
   }
   function enterMobileConsoleMode() {
-    if(!touchCapable || document.fullscreenElement) return;
-    document.documentElement.requestFullscreen?.().then(()=>screen.orientation?.lock?.('landscape').catch(()=>{})).catch(()=>{});
+    if(!touchCapable) return;
+    requestAppFullscreen(true);
   }
   function touchButtonRects() {
     const buildTouch=PLAY_MODE==='build', moveTop=buildTouch?690:NEXT_COUNT===8?545:500;
@@ -2836,6 +3047,9 @@
     }
     const touchRect=canvas.getBoundingClientRect(), touchX=(event.clientX-touchRect.left)*W/touchRect.width, touchY=(event.clientY-touchRect.top)*H/touchRect.height;
     const inside=(x,y,w,h)=>touchX>=x&&touchX<=x+w&&touchY>=y&&touchY<=y+h;
+    // Fullscreen permission requires a direct gesture. Run it for gameplay
+    // buttons too, so a URL transition cannot leave the destination windowed.
+    if(!(settingsOpen&&inside(1125,38,185,58))) enterMobileConsoleMode();
     if(settingsOpen) { if(inside(1125,38,185,58)) toggleFullscreenMode(); else { enterMobileConsoleMode(); if(inside(360,744,350,58)) restoreAllInputDefaults(); else if(inside(850,744,350,58)) clearSavedInputSettings(); else if(inside(24,20,150,58)) closeSettings(); else if(inside(1420,20,155,58)) cycleSfxVolume(); else if(touchX>=300&&touchX<=1300&&touchY>=112&&touchY<=112+BINDABLE_ACTIONS.length*33) settingsIndex=Math.min(BINDABLE_ACTIONS.length-1,Math.floor((touchY-112)/33)); } return; }
     if(phase==='paused') { enterMobileConsoleMode(); if(inside(600,370,400,64)) { pauseMenuIndex=0; command('start'); } else if(inside(600,452,400,64)) { pauseMenuIndex=1; command('start'); } return; }
     if(phase==='puzzleEditor'&&inside(1248,20,145,58)) { enterMobileConsoleMode(); command('pause'); return; }
@@ -2848,6 +3062,7 @@
     if(phase==='onlineLobby'&&P2P.roomCode&&inside(1370,20,205,58)) { enterMobileConsoleMode(); command('share'); return; }
     if(phase==='trainingIntro'&&inside(1370,20,205,58)) { enterMobileConsoleMode(); command('start'); return; }
     if(['gameover','puzzleComplete','puzzleFailed','onlineResult'].includes(phase)&&inside(1370,20,205,58)) { enterMobileConsoleMode(); command('start'); return; }
+    if(phase==='onlineMatchWait'&&inside(520,535,560,80)) { enterMobileConsoleMode(); command('cancel'); return; }
     if(phase!=='title'&&phase!=='falling'&&phase!=='replay'&&inside(24,20,150,58)) { enterMobileConsoleMode(); if(phase==='onlineMatchWait') { if(P2P_MATCH_ENABLED) p2pLeave(true); else closeOnlineLobby(); } else command('cancel'); return; }
     if(phase==='rogueHub') { const checkpoint=rogueCheckpoint(), entries=checkpoint?4:3, width=checkpoint?240:260, start=checkpoint?275:370, gap=checkpoint?270:300; for(let index=0;index<entries;index++) if(inside(start+index*gap,270,width,180)) { rogueHubIndex=index; enterMobileConsoleMode(); command('start'); return; } return; }
     if(phase==='rogueMap') { const routes=rogueRoutes(), width=routes.length===3?380:480, start=routes.length===3?210:routes.length===1?560:330, gap=routes.length===3?400:540; for(let index=0;index<routes.length;index++) if(inside(start+index*gap,600,width,130)) { rogueRouteIndex=index; enterMobileConsoleMode(); command('start'); return; } return; }
@@ -2885,6 +3100,15 @@
       if(hit.repeat) { touchRepeatAction=hit.action; touchRepeatAt=performance.now()+170; canvas.setPointerCapture?.(event.pointerId); }
     }
   }, {passive:false});
+  // Some installed mobile WebViews synthesize only `click` after a fullscreen/orientation transition.
+  // Keep the single reconnect-screen button usable there without double-firing normal pointer input.
+  canvas.addEventListener('click', event=>{
+    if(phase!=='onlineMatchWait'||P2P.intentional) return;
+    let point=event; const rect=canvas.getBoundingClientRect();
+    if(portraitLandscapeShell()) { const nx=(event.clientX-rect.left)/rect.width,ny=(event.clientY-rect.top)/rect.height; point={clientX:rect.left+ny*rect.width,clientY:rect.top+(1-nx)*rect.height}; }
+    const x=(point.clientX-rect.left)*W/rect.width,y=(point.clientY-rect.top)*H/rect.height;
+    if(x>=520&&x<=1080&&y>=535&&y<=615) command('cancel');
+  });
   for(const eventName of ['pointerup','pointercancel','pointerleave']) canvas.addEventListener(eventName, event=>{
     if(event.pointerType==='touch' || event.pointerType==='pen') touchRepeatAction=null;
   });
@@ -3162,6 +3386,7 @@
     const state=onlineOpponentState; if(!state?.board) { text('相手を待っています',x+105,y+175,24,'#8caeba','center','700'); return; }
     let remote; try { remote=decodeReplayBoard(state.board); } catch(_) { text('盤面を確認中…',x+105,y+175,24,'#ffb2bd','center','700'); return; }
     for(let row=0;row<20;row++) for(let col=0;col<10;col++) { const cell=remote[row][col], px=x+35+col*size, py=y+44+row*size; ctx.fillStyle=(row+col)%2?'#102231':'#0e1e2c'; ctx.fillRect(px,py,size-1,size-1); if(cell?.terrain) { ctx.fillStyle=cell.terrain==='stone'?'#8291a0':cell.terrain==='ice'?'#8edfff':'#59bb78'; rr(px+2,py+2,size-4,size-4,2); } else if(cell?.color) { ctx.fillStyle=colorById(cell.color).hex; rr(px+2,py+2,size-4,size-4,2); if(cell.state==='charged') { ctx.strokeStyle='#fff1a8'; ctx.lineWidth=1; ctx.strokeRect(px+3,py+3,size-6,size-6); } } }
+    if(state.active&&SHAPES[state.active.type]) rotated(SHAPES[state.active.type],state.active.rotation||0).forEach(([dx,dy],index)=>{ const col=state.active.x+dx,row=state.active.y+dy; if(col<0||col>=10||row<0||row>=20) return; const px=x+35+col*size,py=y+44+row*size,color=state.active.colors?.[index]||'red'; ctx.fillStyle=colorById(color).hex; rr(px+1,py+1,size-2,size-2,2); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillRect(px+5,py+5,4,4); });
     text(`${state.score.toLocaleString()}点　${state.turn}手`,x+115,y+354,24,'#d8f3fb','center','800');
   }
   function drawOnlineAttackQueue() {
@@ -3520,7 +3745,7 @@
   function drawSettingsScreen() {
     ctx.fillStyle='rgba(3,10,17,.92)'; ctx.fillRect(0,0,W,H); panel(260,30,1080,840,'操作設定');
     text('キー: ↑ / ↓ と決定　　ゲームパッド: 十字キーと B　　A / セレクトで戻る',700,78,24,'#9ed5e7','center','700');
-    drawTouchAction(1125,38,185,document.fullscreenElement?'全画面を終了':'全画面','#173b35');
+    drawTouchAction(1125,38,185,fullscreenElement()?'全画面を終了':installedFullscreenMode()?'全画面中':'全画面','#173b35');
     BINDABLE_ACTIONS.forEach((action,index)=>{
       const y=112+index*33, selected=index===settingsIndex, duplicate=gamepadBindingIsDuplicate(action); ctx.fillStyle=selected?'#1d4a60':'#0b1824'; rr(300,y,1000,31,9);
       if(selected) { ctx.strokeStyle='#8bdcff'; ctx.lineWidth=2; ctx.stroke(); }
@@ -3613,7 +3838,7 @@
     if(phase==='puzzleEditor') { drawPuzzleEditor(); return; }
     if(phase==='onlineLobby') { drawOnlineLobby(); return; }
     if(phase==='onlineSpectator') { drawOnlineSpectator(); return; }
-    if(phase==='onlineMatchWait') { ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); panel(360,250,880,380,P2P_MATCH_ENABLED?'フレンド対戦　復帰中':'オンライン対戦　接続中'); text(P2P_MATCH_ENABLED?(P2P.role==='host'?'相手の復帰を待っています…':'ホストへつなぎ直しています…'):'サーバーの試合へ戻っています…',800,390,34,'#d9f7ff','center','900'); text(onlineError||'盤面はそのまま保存されています',800,455,25,onlineError?'#ffb2bd':'#a9d8e4','center','700'); text(P2P_MATCH_ENABLED?'45秒以内に戻れば、その場から再開します':'通信が戻ると、自動で対戦盤面へ進みます。',800,520,24,'#ffe18a','center','800'); text('キャンセルで対戦を終了',800,575,24,'#9ed5e7','center','700'); return; }
+    if(phase==='onlineMatchWait') { ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); const syncing=P2P.status==='syncing',failed=P2P.status==='error',reconnecting=P2P.status==='reconnecting',heading=failed?'通信エラー':syncing?'盤面を準備中':reconnecting?'再接続待ち':'対戦へ接続中',main=failed?(onlineError||'接続を戻せませんでした'):syncing?'両方の盤面を同じ状態にしています…':reconnecting?(P2P.role==='host'?'相手の再接続を待っています…':'ホストへつなぎ直しています…'):'対戦相手へ接続しています…'; panel(360,250,880,380,heading); text(main,800,390,34,failed?'#ffb2bd':'#d9f7ff','center','900'); text(failed?'対戦を終了して、もう一度部屋を作れます':syncing?'そろい終わるまで操作は入りません':'盤面と経過時間は保存されています',800,455,25,failed?'#ffd0d6':'#a9d8e4','center','700'); text(reconnecting?'45秒以内なら、その場から再開します':'接続後、自動で対戦を始めます',800,510,24,'#ffe18a','center','800'); ctx.fillStyle='#17384a'; rr(580,545,440,58,14); ctx.strokeStyle='#6ebed7'; ctx.lineWidth=2; ctx.stroke(); text('キャンセルで対戦を終了',800,582,24,'#d8f6ff','center','800'); return; }
     if(phase==='onlineResult') { ctx.fillStyle='rgba(3,10,17,.80)'; ctx.fillRect(0,0,W,H); const won=onlineMatchResult?.winnerId===onlineLocalPlayerId(), rematchCount=P2P_MATCH_ENABLED?P2P.rematch.size:(onlineRoom?.players?.filter(player=>player.rematch).length||0), change=(onlineMatchResult?.ratingDelta||0)*(won?1:-1); panel(470,220,660,450,won?'フレンド対戦　勝利！':'フレンド対戦　敗北'); text(won?'WIN':'LOSE',800,340,72,won?'#9cf7c1':'#ff9ca8','center','900'); text(onlineMatchResult?.reason||'試合終了',800,410,28,'#d9f7ff','center','800'); text(`自分 ${score.toLocaleString()} 点　/　${turn} 手`,800,470,26,'#ffe18a','center','800'); text(P2P_MATCH_ENABLED?'レート変動なし':`レート ${onlineRating}　${change>=0?'+':''}${change}`,800,510,26,'#b9eaf7','center','900'); text(onlineRematchRequested?`再戦OK　${rematchCount} / 2 人`:'決定で再戦OK',800,555,28,'#ffe18a','center','800'); text('キャンセルでタイトルへ戻る',800,605,24,'#9ed5e7','center','700'); return; }
     if(phase==='puzzleSelect') { drawPuzzleSelect(); return; }
     if(phase==='dailySelect') { drawDailySelect(); return; }
@@ -3691,14 +3916,17 @@
     render(); requestAnimationFrame(loop);
   }
   // ?debug=1 の時だけ、プレイテスト用の読み取り専用スナップショットを公開する。
-  function p2pAuthoritySnapshot() { return {phase,score,turn,board:encodeReplayBoard(board),stats:{...runStats},attacks:[...outgoingAttacks],reason:gameOverReason,digest:onlineClientDigest()}; }
-  if(P2P_HEADLESS) window.__PUZZLE_P2P_API__={
-    start:()=>{ resetGame(); phase='falling'; toast=''; toastUntil=0; gravityAt=Infinity; return p2pAuthoritySnapshot(); },
+  function p2pAuthoritySnapshot() { return {phase,score,turn,board:encodeReplayBoard(board),active:active?{type:active.type,colors:[...active.colors],rotation:active.rotation,x:active.x,y:active.y}:null,clockMs:p2pClockMs,nextDue:p2pNextNaturalDue(),stats:{...runStats},attacks:[...outgoingAttacks],reason:gameOverReason,digest:onlineClientDigest()}; }
+  if(QUERY.get('p2pHeadless')==='1') window.__PUZZLE_P2P_API__={
+    protocol:P2P_PROTOCOL_VERSION,
+    start:()=>{ resetGame(); phase='falling'; toast=''; toastUntil=0; startP2PBoardClock(); return p2pAuthoritySnapshot(); },
+    advanceTo:atMs=>{ advanceP2PBoardClock(atMs); return p2pAuthoritySnapshot(); },
+    nextDue:()=>p2pNextNaturalDue(),
     input:action=>{ command(action); return p2pAuthoritySnapshot(); },
-    receiveAttacks:attacks=>{ if(Array.isArray(attacks)) incomingAttacks.push(...attacks.map(attack=>({...attack}))); return p2pAuthoritySnapshot(); },
+    receiveAttacks:attacks=>{ if(Array.isArray(attacks)) incomingAttacks.push(...attacks.map(attack=>({...attack,receivedTurn:turn}))); return p2pAuthoritySnapshot(); },
     snapshot:p2pAuthoritySnapshot
   };
-  if(new URLSearchParams(location.search).has('debug')) window.__PUZZLE_DEBUG__={
+  if(QUERY.has('debug')) window.__PUZZLE_DEBUG__={
     snapshot: () => {
       const target=releaseTargetGroup(), forecast=target?nextGrowthForecast(target):null;
       const terrain=board.flat().filter(isTerrain).reduce((counts,tile)=>{counts[tile.terrain]=(counts[tile.terrain]||0)+1; return counts;},{});
@@ -3706,6 +3934,10 @@
     }
     ,command, reset:resetGame, result:exportRunResult, rules:RULES, buildBalance:()=>runBuildBalanceSweep()
   };
+  if(QUERY.has('debug')) {
+    document.addEventListener('puzzle-p2p-test-desync',()=>{ if(P2P_MATCH_ENABLED&&active) { active={...active,x:active.x+(active.x<5?1:-1)}; document.documentElement.dataset.p2pFaultInjected='1'; } });
+    document.addEventListener('puzzle-p2p-test-disconnect',()=>{ if(P2P_MATCH_ENABLED) { try { P2P.conn?.close(); } catch(_) {} document.documentElement.dataset.p2pDisconnectInjected='1'; } });
+  }
   if(SELF_TEST) {
     const deterministic=runDeterminismSuite(); resetGame(); const core=runCoreRuleSuite(); resetGame(); const cardMatrix=runBuildCardMatrixSuite(); resetGame(); const buildBalance=runBuildBalanceSuite(); resetGame(); const rogueBalance=runRogueBalanceSuite(); resetGame(); const movement=runMovementRuleSuite(); resetGame(); const terrain=runTerrainRuleSuite(); resetGame(); const timing=runTimingRuleSuite(); resetGame(); const gamepad=runGamepadRuleSuite(); resetGame(); const replayCodec=runReplayCodecSuite(); resetGame(); const terrainDensity=runTerrainDensitySuite();
     document.documentElement.dataset.selftest=`${deterministic.checks} deterministic + ${core.checks} core + ${cardMatrix.checks} card matrix + ${buildBalance.checks} build balance + ${rogueBalance.checks} rogue balance + ${movement.checks} movement + ${terrain.checks} terrain + ${timing.checks} timing + ${gamepad.checks} gamepad + ${replayCodec.checks} replay + ${terrainDensity.checks} density simulations passed`;
@@ -3746,6 +3978,7 @@
 </script>
 <script>
 (function(){
+  if(window.frameElement?.dataset?.p2pHeadless==='1') return;
   if(!('serviceWorker' in navigator) || location.protocol.indexOf('http')!==0) return;
   const SW_URL='./sw.js', INDEX_URL='./index.html', SIGNATURE_KEY='puzzle-le-pwa-html-signature-v1', PENDING_KEY='puzzle-le-pwa-pending-reload-v1';
   let reloadStarted=false, updateRegistration=null;
