@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-10">
+<meta name="puzzle-build" content="pwa-20260715-11">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -3125,7 +3125,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     if(phase==='cardLibrary') { const page=Math.floor(cardLibraryIndex/6), start=page*6; for(let index=0;index<6;index++) { const x=205+(index%3)*405,y=190+Math.floor(index/3)*215; if(inside(x,y,350,185)&&BUILD_POOL[start+index]) { cardLibraryIndex=start+index; enterMobileConsoleMode(); return; } } return; }
     if(phase==='onlineLobby') { enterMobileConsoleMode(); if(!P2P.roomCode) { for(let index=0;index<3;index++) if(inside(215+index*405,245,370,210)) { onlineLobbyIndex=index; command('start'); return; } } else if(inside(350,360,900,205)) command('start'); return; }
     if(phase==='puzzleSelect') { const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height, puzzles=selectablePuzzles(); if(x>=1080&&x<=1430&&y>=78&&y<=152) { enterMobileConsoleMode(); command('reserve'); return; } if(x>=190&&x<=1430&&y>=160&&y<=642) { const index=Math.floor((y-160)/82)*2+(x>=840?1:0); if(puzzles[index]) { puzzleMenuIndex=index; enterMobileConsoleMode(); command('start'); } } return; }
-    if(phase==='title') { const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height; if(x>=136&&x<=656&&y>=340&&y<767) { titleMenuIndex=Math.min(6,Math.floor((y-340)/61)); enterMobileConsoleMode(); command('start'); return; } return; }
+    if(phase==='title') { const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height; if(x>=136&&x<=756&&y>=390&&y<796) { titleMenuIndex=Math.min(6,Math.floor((y-390)/58)); enterMobileConsoleMode(); command('start'); return; } return; }
     if(phase==='creatorHub') { const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height; if(x>=300&&x<=1290&&y>=225&&y<=620) { const column=x>=810?1:0,row=y>=440?1:0; creatorMenuIndex=row*2+column; enterMobileConsoleMode(); command('start'); } return; }
     if(phase==='creatorLibrary') { const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height, puzzles=readCustomPuzzles(); if(!puzzles.length) { if(x>=400&&x<=1200&&y>=340&&y<=510) { enterMobileConsoleMode(); openPuzzleEditor(); } return; } if(x>=215&&x<=1385&&y>=190&&y<=686) { const index=Math.floor((y-190)/124)*2+(x>=825?1:0); if(puzzles[index]) { creatorLibraryIndex=index; enterMobileConsoleMode(); command('start'); } } return; }
     if(phase==='communityBrowse') { const rect=canvas.getBoundingClientRect(), x=(event.clientX-rect.left)*W/rect.width, y=(event.clientY-rect.top)*H/rect.height; if(x>=205&&x<=1395&&y>=100&&y<=178) { communityDailyFocus=true; enterMobileConsoleMode(); command('start'); return; } if(y>=194&&y<=254) { enterMobileConsoleMode(); if(x<800) command('reserve'); else command('share'); return; } if(x>=190&&x<=1410&&y>=275&&y<=725) { const index=Math.floor((y-275)/150)*2+(x>=825?1:0); if(communityPuzzles[index]) { communityDailyFocus=false; communityIndex=index; enterMobileConsoleMode(); command('start'); } } return; }
@@ -3553,22 +3553,25 @@ if(document.documentElement.dataset.phoneUi==='1') {
     if(['gameover','puzzleComplete','puzzleFailed','onlineResult'].includes(phase)) drawTouchAction(1370,20,205,phase==='puzzleComplete'?'次へ':'もう一回','#173b35');
   }
   function drawTitleScreen() {
-    ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H);
-    const glow=ctx.createRadialGradient(1210,280,30,1210,280,620); glow.addColorStop(0,'rgba(74,177,219,.20)'); glow.addColorStop(1,'rgba(7,16,24,0)'); ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
-    ctx.fillStyle='#102534'; rr(94,72,700,756,32); ctx.strokeStyle='#2e6680'; ctx.lineWidth=2; ctx.stroke();
-    ctx.fillStyle='#61d1f5'; rr(136,158,74,8,4); text('PUZZ',136,258,104,'#f1fbff','left','900'); text('-LE',520,258,104,'#61d1f5','left','900');
+    const bg=ctx.createLinearGradient(0,0,W,H); bg.addColorStop(0,'#102d42'); bg.addColorStop(.45,'#071827'); bg.addColorStop(1,'#040912'); ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+    const leftGlow=ctx.createRadialGradient(300,130,30,300,130,620); leftGlow.addColorStop(0,'rgba(79,215,255,.18)'); leftGlow.addColorStop(1,'rgba(7,16,24,0)'); ctx.fillStyle=leftGlow; ctx.fillRect(0,0,W,H);
+    const rightGlow=ctx.createRadialGradient(1280,170,30,1280,170,520); rightGlow.addColorStop(0,'rgba(124,255,207,.12)'); rightGlow.addColorStop(1,'rgba(7,16,24,0)'); ctx.fillStyle=rightGlow; ctx.fillRect(0,0,W,H);
+    ctx.save(); const hero=ctx.createLinearGradient(80,52,1520,330); hero.addColorStop(0,'rgba(17,53,73,.96)'); hero.addColorStop(.58,'rgba(10,34,50,.94)'); hero.addColorStop(1,'rgba(7,23,36,.92)'); ctx.fillStyle=hero; ctx.shadowColor='rgba(55,205,255,.18)'; ctx.shadowBlur=34; rr(76,48,1448,286,34); ctx.shadowBlur=0; ctx.strokeStyle='#3b7890'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+    const rail=ctx.createLinearGradient(120,0,1450,0); rail.addColorStop(0,'#62dcff'); rail.addColorStop(.46,'#8af2d5'); rail.addColorStop(1,'rgba(98,220,255,0)'); ctx.fillStyle=rail; rr(122,74,1328,7,4);
+    ctx.save(); ctx.shadowColor='rgba(97,209,245,.30)'; ctx.shadowBlur=22; text('PUZZ',130,205,132,'#f4fbff','left','900'); text('-LE',574,205,132,'#61d1f5','left','900'); ctx.restore();
+    ctx.fillStyle='#5bdcff'; rr(136,274,86,8,4); ctx.fillStyle='rgba(91,220,255,.22)'; rr(236,274,430,8,4);
+    const heroTiles=[{x:1090,y:104,c:'red'},{x:1154,y:104,c:'blue'},{x:1218,y:104,c:'yellow'},{x:1282,y:104,c:'green'},{x:1154,y:168,c:'yellow'},{x:1218,y:168,c:'red'},{x:1282,y:168,c:'blue'},{x:1346,y:168,c:'green'},{x:1218,y:232,c:'green'},{x:1282,y:232,c:'blue'}];
+    ctx.save(); ctx.shadowColor='rgba(91,220,255,.25)'; ctx.shadowBlur=18; heroTiles.forEach(tile=>drawPreviewBlock(tile.x,tile.y,52,tile.c)); ctx.restore();
+    ctx.fillStyle='rgba(8,27,40,.86)'; rr(96,360,740,482,28); ctx.strokeStyle='#315f73'; ctx.lineWidth=2; ctx.stroke();
     const modes=['ランク戦','デイリー','詰めパズル','構築ラボ','ローグ・ラン','フレンド対戦','つくる'];
-    modes.forEach((label,index)=>{ const y=340+index*61, selected=titleMenuIndex===index; ctx.fillStyle=selected?'#183e52':'#102b3a'; rr(136,y,520,52,14); if(selected) { ctx.strokeStyle='#79dcfa'; ctx.lineWidth=2; ctx.stroke(); } text(label,168,y+27,28,'#effbff','left','900'); if(selected) text(touchCapable?'タップ':'決定',624,y+27,22,'#b9eaf7','right','800'); });
+    modes.forEach((label,index)=>{ const y=390+index*58, selected=titleMenuIndex===index; ctx.save(); ctx.fillStyle=selected?'#1d526a':'#102b3a'; if(selected) { ctx.shadowColor='rgba(91,220,255,.28)'; ctx.shadowBlur=18; } rr(136,y,620,50,14); ctx.shadowBlur=0; ctx.fillStyle=selected?'#7de3ff':'rgba(125,227,255,.28)'; rr(139,y+8,5,34,3); ctx.strokeStyle=selected?'#8be8ff':'#244b5e'; ctx.lineWidth=selected?2:1; ctx.stroke(); ctx.restore(); text(label,172,y+26,28,'#effbff','left','900'); if(selected) text(touchCapable?'タップ':'決定',724,y+26,24,'#c9f5ff','right','800'); });
     const journey=rankedJourneyState();
-    panel(920,520,450,190,'盤面の道');
-    text(`${journey.completed} / ${RANKED_JOURNEY.length}`,1145,590,48,journey.complete?'#9cf7c1':'#ffe18a','center','900');
-    text(journey.complete?'ぜんぶ できた！':journey.next.name,1145,632,28,'#effbff','center','900');
-    text(journey.complete?'きれいに消す道を制覇':`次は ${journey.next.goal}`,1145,674,24,'#b9eaf7','center','700');
-    text('ランク戦で 1つずつ開く',1145,726,24,'#8dbdcd','center','700');
-    text('↑ ↓ 選択　決定　H ルール　O 設定',140,790,24,'#7daaba','left','700');
-    const tiles=[{x:1010,y:180,c:'red'},{x:1082,y:180,c:'blue'},{x:1154,y:180,c:'yellow'},{x:1226,y:180,c:'green'},{x:1082,y:252,c:'yellow'},{x:1154,y:252,c:'red'},{x:1226,y:252,c:'blue'},{x:1298,y:252,c:'green'},{x:1154,y:324,c:'green'},{x:1226,y:324,c:'blue'}];
-    for(const tile of tiles) drawBlock(tile.x,tile.y,tile.c,false);
-    ctx.save(); ctx.strokeStyle='#4e8499'; ctx.lineWidth=2; ctx.setLineDash([8,8]); ctx.strokeRect(978,148,380,302); ctx.setLineDash([]); ctx.restore();
+    panel(950,476,500,230,'盤面の道');
+    text(`${journey.completed} / ${RANKED_JOURNEY.length}`,1200,552,58,journey.complete?'#9cf7c1':'#ffe18a','center','900');
+    text(journey.complete?'ぜんぶ できた！':journey.next.name,1200,606,31,'#effbff','center','900');
+    text(journey.complete?'きれいに消す道を制覇':`次は ${journey.next.goal}`,1200,650,24,'#b9eaf7','center','700');
+    text('ランク戦で 1つずつ開く',1200,686,24,'#8dbdcd','center','700');
+    ctx.fillStyle='rgba(12,38,54,.78)'; rr(950,732,500,90,20); ctx.strokeStyle='#284f62'; ctx.lineWidth=2; ctx.stroke(); text('↑ ↓ 選択　決定',1200,762,26,'#d9f7ff','center','800'); text('H ルール　O 操作設定',1200,798,24,'#8fc1d0','center','700');
   }
   function drawPuzzleEditor() {
     ctx.fillStyle='#071018'; ctx.fillRect(0,0,W,H); panel(112,48,1376,792,'つくる　自作パズル');
@@ -4036,10 +4039,16 @@ if(document.documentElement.dataset.phoneUi==='1') {
     else if(toast&&performance.now()<toastUntil) { ctx.fillStyle='rgba(7,20,31,.92)'; rr(190,1128,520,68,18); phoneWrap(toast,450,1162,480,30,'#e3faff','center','800',1,34); }
   }
   function phoneDrawTitle() {
-    phoneHeader('PUZZ-LE',{back:false}); phoneText('PUZZ',52,190,76,'#f1fbff','left','900'); phoneText('-LE',570,190,76,'#61d1f5','left','900');
+    phoneBackdrop(); const heroH=380+Math.min(96,Math.round(PHONE_EXTRA*.28));
+    ctx.save(); const hero=ctx.createLinearGradient(22,18,878,heroH+18); hero.addColorStop(0,'rgba(18,58,79,.97)'); hero.addColorStop(.62,'rgba(9,34,50,.95)'); hero.addColorStop(1,'rgba(6,23,36,.94)'); ctx.fillStyle=hero; ctx.shadowColor='rgba(68,204,255,.20)'; ctx.shadowBlur=30; rr(22,18,856,heroH,32); ctx.shadowBlur=0; ctx.strokeStyle='#3b7890'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+    const rail=ctx.createLinearGradient(48,0,850,0); rail.addColorStop(0,'#62dcff'); rail.addColorStop(.52,'#8af2d5'); rail.addColorStop(1,'rgba(98,220,255,0)'); ctx.fillStyle=rail; rr(48,34,802,7,4);
+    ctx.save(); ctx.shadowColor='rgba(97,209,245,.32)'; ctx.shadowBlur=22; phoneText('PUZZ',56,146,112,'#f4fbff','left','900'); phoneText('-LE',558,146,112,'#61d1f5','left','900'); ctx.restore();
+    ctx.fillStyle='#5bdcff'; rr(62,218,76,8,4); ctx.fillStyle='rgba(91,220,255,.22)'; rr(150,218,310,8,4);
+    const tileSize=48, tileX=474, tileY=246, titleTiles=[['red',0,0],['blue',1,0],['yellow',2,0],['green',3,0],['yellow',1,1],['red',2,1],['blue',3,1],['green',4,1],['green',2,2],['blue',3,2]];
+    ctx.save(); ctx.shadowColor='rgba(91,220,255,.25)'; ctx.shadowBlur=16; titleTiles.forEach(([color,x,y])=>drawPreviewBlock(tileX+x*tileSize,tileY+y*tileSize,tileSize-4,color)); ctx.restore();
     const labels=['ランク戦','デイリー','詰めパズル','構築ラボ','ローグ・ラン','フレンド対戦','つくる'];
-    const gap=158+Math.min(50,Math.floor(PHONE_EXTRA/7)); labels.forEach((label,index)=>phoneMenuCard(60,260+index*gap,780,132,label,'',titleMenuIndex===index,()=>{titleMenuIndex=index;command('start');},{icon:['◆','日','詰','構','路','対','＋'][index]}));
-    phoneButton(560,H-224,300,92,'操作設定',()=>command('settings'),{tone:'#122c3b'});
+    const menuTop=heroH+58, gap=132+Math.min(33,Math.floor(PHONE_EXTRA/10)), itemH=112; labels.forEach((label,index)=>phoneMenuCard(60,menuTop+index*gap,780,itemH,label,'',titleMenuIndex===index,()=>{titleMenuIndex=index;command('start');},{icon:['◆','日','詰','構','路','対','＋'][index]}));
+    phoneButton(560,menuTop+labels.length*gap+24,300,84,'操作設定',()=>command('settings'),{tone:'#122c3b'});
   }
   function phoneDrawListScreen(title,items,index,choose,{count=8,detail='',back=true,top=150,rowH=154}={}) {
     phoneHeader(title,{back,detail}); const windowed=phoneWindow(items,index,count);
