@@ -6,7 +6,7 @@
 <title>PUZZ-LE | パズルゲーム</title>
 <meta name="description" content="ボムを育て、つないで、盤面を一気に片づける落ちものパズル。">
 <meta name="theme-color" content="#071018">
-<meta name="puzzle-build" content="pwa-20260715-13">
+  <meta name="puzzle-build" content="pwa-20260715-17">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -674,6 +674,14 @@ if(document.documentElement.dataset.phoneUi==='1') {
     return {done,earned,title,next:CLEANUP_ARC.find((_,index)=>!done[index])||null};
   }
   function cleanupArcText(stats=runStats) { const arc=cleanupArc(stats); return arc.next?`次は ${arc.next.goal}`:'3つ達成　盤面まっさら！'; }
+  function rankedRunReview(stats=runStats, reason=gameOverReason) {
+    if(String(reason).includes('暴走')) return {title:'暴走を止めきれなかった',detail:'高圧ボムは、育てる前に予約して盤面を空けよう'};
+    if((stats.releases||0)===0) return {title:'起爆まで届かなかった',detail:'まず同色4つで、早めに最初のボムを作ろう'};
+    if((stats.runaways||0)>0) return {title:'暴走の立て直しが課題',detail:'危ないボムを選び、次の固定で起爆を予約しよう'};
+    if((stats.maxChain||0)<2) return {title:'次は連鎖をねらえる',detail:'ボム同士を接触させると、盤面が大きく空く'};
+    if((stats.cleanupBlocks||0)<8) return {title:'爆発の位置を磨ける',detail:'下段を巻き込むと、次の置き場が増える'};
+    return {title:'よく立て直せている',detail:'高圧ボムで、大連鎖とライン消しを両立させよう'};
+  }
   // The ranked journey is deliberately one board skill at a time. It is a
   // lasting reason to return, but never adds a timer, currency, or a second menu.
   const RANKED_JOURNEY = Object.freeze([
@@ -2141,6 +2149,11 @@ if(document.documentElement.dataset.phoneUi==='1') {
     assertRuleTest(menuB.confirm&&!menuB.rotateRight&&menuA.cancel,'gamepad B confirms and A cancels outside play'); checks++;
     const duplicated={left:[0],right:[0]}, duplicateRows=Object.keys(duplicated).filter(action=>duplicated[action].some(button=>Object.keys(duplicated).some(other=>other!==action&&duplicated[other].includes(button))));
     assertRuleTest(duplicateRows.length===2&&DEFAULT_GAMEPAD_BINDINGS.confirm.includes(1)&&DEFAULT_GAMEPAD_BINDINGS.rotateRight.includes(1)&&DEFAULT_GAMEPAD_BINDINGS.up.includes(12)&&DEFAULT_GAMEPAD_BINDINGS.reserve.includes(12),'gamepad defaults deliberately preserve contextual overlap and duplicate detection'); checks++;
+    resetGame(); puzzleLibraryPage=0; puzzleMenuIndex=0; phase='puzzleSelect';
+    command('left'); const leftEdge=puzzleMenuIndex; command('right'); const movedRight=puzzleMenuIndex; command('right'); const rightEdge=puzzleMenuIndex; command('left'); const movedLeft=puzzleMenuIndex;
+    assertRuleTest(leftEdge===0&&movedRight===1&&rightEdge===1&&movedLeft===0,'puzzle grid horizontal navigation respects direction and stops at edges'); checks++;
+    resetGame(); phase='gameover'; command('start');
+    assertRuleTest(phase==='falling','game-over retry starts a fresh normal run instead of returning to title'); checks++;
     return {checks};
   }
   function runReplayCodecSuite() {
@@ -2571,7 +2584,12 @@ if(document.documentElement.dataset.phoneUi==='1') {
   function hasSeenTutorial() { return localStorage.getItem('puzzle-le-ranked-tutorial-v1') === 'seen'; }
   function hasSeenTerrainTutorial() { return localStorage.getItem('puzzle-le-terrain-tutorial-v1') === 'seen'; }
   function startTrainingCourse(step=0) { const id=TRAINING_COURSE[step]; navigateApp(`${location.pathname}?mode=puzzle&puzzle=${encodeURIComponent(id)}&course=1&courseStep=${step}`); }
-  function finishTrainingCourse() { try { localStorage.setItem('puzzle-le-ranked-tutorial-v1','seen'); } catch(_) {} navigateApp(location.pathname); }
+  function leaveTrainingCourse() {
+    try { localStorage.setItem('puzzle-le-ranked-tutorial-v1','seen'); } catch(_) {}
+    try { history.replaceState(null,'',location.pathname); } catch(_) {}
+    resetGame(); puzzleLibraryPage=0; puzzleMenuIndex=0; phase='puzzleSelect';
+  }
+  function finishTrainingCourse() { leaveTrainingCourse(); }
   function groupColor(group) { const cell=group?.cells?.[0]; return cell ? board[cell[1]]?.[cell[0]]?.color : null; }
   function trainingPrompt() {
     if(!TRAINING_ACTIVE || phase!=='falling') return '';
@@ -2669,6 +2687,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
     else if(name==='speedDown') changeReplaySpeed(-1);
     else if(name==='speedUp') changeReplaySpeed(1);
     else if(name==='pause') { phase='paused'; pausedFrom='replay'; }
+    else if(name==='cancel') navigateApp(location.pathname);
   }
 
   function selectablePuzzles() { if(puzzleLibraryPage) return TERRAIN_COURSE_IDS.map(id=>PUZZLES[id]).filter(Boolean); const list=Object.values(PUZZLES).filter(puzzle=>!!puzzle&&!puzzle.terrain); return [...list.filter(puzzle=>puzzle?.id?.startsWith('custom_')),...list.filter(puzzle=>!puzzle?.id?.startsWith('custom_'))]; }
@@ -2881,7 +2900,17 @@ if(document.documentElement.dataset.phoneUi==='1') {
       if(name==='right'||name==='down'||name==='rotateRight') { titleMenuIndex=(titleMenuIndex+1)%choices.length; return; }
       if(['confirm','start'].includes(name)) {
         const chosen=choices[titleMenuIndex];
-        if(chosen==='daily') { if(PLAY_MODE==='daily'&&QUERY.has('date')) { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); } else phase='dailySelect'; return; }
+        if(chosen==='daily') {
+          // Returning to the title preserves the dated daily URL. Keep that
+          // date selected in the archive, but never let the stale query skip
+          // the archive and reopen the previous board.
+          if(PLAY_MODE==='daily'&&QUERY.has('date')) {
+            const currentDailyIndex=archiveDates().indexOf(QUERY.get('date'));
+            dailyMenuIndex=currentDailyIndex>=0?currentDailyIndex:0;
+          }
+          phase='dailySelect';
+          return;
+        }
         // Returning to the title preserves the puzzle URL, so never let that
         // stale query bypass the library and reopen the previous board.
         if(chosen==='puzzle') { puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; puzzleMenuIndex=0; phase='puzzleSelect'; return; }
@@ -2890,7 +2919,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
         if(chosen==='online') { openOnlineLobby(); return; }
         if(chosen==='editor') { openCreatorHub(); return; }
         if(chosen!==PLAY_MODE) { navigateApp(`${location.pathname}?mode=${chosen}`); return; }
-        if(chosen==='ranked'&&!hasSeenTutorial()) { phase='trainingIntro'; return; }
+        if(chosen==='ranked'&&!hasSeenTutorial()) { startTrainingCourse(); return; }
         if(TERRAIN_ENABLED&&!hasSeenTerrainTutorial()) { tutorialOpen=true; tutorialStep=0; } else { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); }
       }
       return;
@@ -2925,8 +2954,8 @@ if(document.documentElement.dataset.phoneUi==='1') {
     if(phase==='puzzleSelect') {
       const puzzles=selectablePuzzles();
       if(name==='reserve') { puzzleLibraryPage=1-puzzleLibraryPage; puzzleMenuIndex=0; return; }
-      if(name==='left'||name==='rotateLeft') { puzzleMenuIndex=puzzleMenuIndex%2?puzzleMenuIndex-1:Math.min(puzzles.length-1,puzzleMenuIndex+1); return; }
-      if(name==='right'||name==='rotateRight') { puzzleMenuIndex=puzzleMenuIndex%2?puzzleMenuIndex-1:Math.min(puzzles.length-1,puzzleMenuIndex+1); return; }
+      if(name==='left'||name==='rotateLeft') { if(puzzleMenuIndex%2) puzzleMenuIndex--; return; }
+      if(name==='right'||name==='rotateRight') { if(puzzleMenuIndex%2===0&&puzzleMenuIndex+1<puzzles.length) puzzleMenuIndex++; return; }
       if(name==='up') { puzzleMenuIndex=(puzzleMenuIndex-2+puzzles.length)%puzzles.length; return; }
       if(name==='down') { puzzleMenuIndex=(puzzleMenuIndex+2)%puzzles.length; return; }
       if(name==='cancel'||name==='pause') { phase='title'; return; }
@@ -2951,13 +2980,13 @@ if(document.documentElement.dataset.phoneUi==='1') {
       return;
     }
     if(phase==='onlineResult') { if(P2P_MATCH_ENABLED) { if(['confirm','start'].includes(name)) { if(!onlineRematchRequested) { p2pRequestRematch(); say('再戦OK。相手を待っています',Infinity); } return; } if(['cancel','pause'].includes(name)) p2pLeave(true); return; } if(['confirm','start'].includes(name)) { if(!onlineRematchRequested&&onlineRoom?.id) { onlineRematchRequested=true; onlineSend('rematch',{roomId:onlineRoom.id}); say('再戦OK。相手を待っています',Infinity); } return; } if(['cancel','pause'].includes(name)) closeOnlineLobby(); return; }
-    if(phase==='puzzleComplete') { if(COMMUNITY_DAILY_DATE) { if(name==='reserve') { openCommunityCleanup(communityDailyResult); return; } if(['confirm','start'].includes(name)) { advanceCommunityDaily(); return; } if(name==='cancel'||name==='pause') { navigateApp(communityReturnUrl(true)); return; } return; } if(COMMUNITY_PUZZLE_ID) { if(name==='left'||name==='up'||name==='rotateLeft') { communityRatingIndex=(communityRatingIndex+3)%4; return; } if(name==='right'||name==='down'||name==='rotateRight') { communityRatingIndex=(communityRatingIndex+1)%4; return; } if(['confirm','start'].includes(name)) { rateCommunityPuzzle(communityRatingIndex); return; } if(name==='cancel'||name==='pause') { navigateApp(communityReturnUrl()); return; } return; } if(['confirm','start'].includes(name)) { if(CREATOR_TEST) { navigateApp(`${location.pathname}?creator=1`); return; } if(CREATOR_COURSE_INDEX>=0) { const nextIndex=CREATOR_COURSE_INDEX+1; navigateApp(nextIndex<CREATOR_COURSE_IDS.length?creatorCourseUrl(CREATOR_COURSE_IDS,nextIndex,CREATOR_COURSE_DATA):`${location.pathname}?creator=1`); return; } if(TRAINING_ACTIVE) { if(TRAINING_STEP<TRAINING_COURSE.length-1) startTrainingCourse(TRAINING_STEP+1); else finishTrainingCourse(); return; } resetGame(); puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; const puzzles=selectablePuzzles(), current=Math.max(0,puzzles.findIndex(puzzle=>puzzle.id===PUZZLE_ID)); puzzleMenuIndex=Math.min(puzzles.length-1,current+1); phase='puzzleSelect'; return; } if(name==='cancel') { if(CREATOR_TEST||CREATOR_COURSE_INDEX>=0) navigateApp(`${location.pathname}?creator=1`); else { resetGame(); phase='puzzleSelect'; } } return; }
-    if(phase==='puzzleFailed') { if(['confirm','start'].includes(name)) { resetGame(); phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); return; } if(name==='cancel'||name==='pause') { if(COMMUNITY_PUZZLE_ID) navigateApp(communityReturnUrl()); else if(CREATOR_TEST) navigateApp(`${location.pathname}?creator=1`); else { resetGame(); phase='puzzleSelect'; } } return; }
-    if(phase==='gameover') { if(ROGUE_ENABLED) { if(['confirm','start'].includes(name)) startNewRogueRun(); else if(name==='cancel'||name==='pause') { resetGame(); beginRogueRun(); } return; } if(['confirm','start'].includes(name)) resetGame(); if(name==='cancel'||name==='pause') { resetGame(); phase=PLAY_MODE==='daily'?'dailySelect':'title'; } return; }
+    if(phase==='puzzleComplete') { if(COMMUNITY_DAILY_DATE) { if(name==='reserve') { openCommunityCleanup(communityDailyResult); return; } if(['confirm','start'].includes(name)) { advanceCommunityDaily(); return; } if(name==='cancel'||name==='pause') { navigateApp(communityReturnUrl(true)); return; } return; } if(COMMUNITY_PUZZLE_ID) { if(name==='left'||name==='up'||name==='rotateLeft') { communityRatingIndex=(communityRatingIndex+3)%4; return; } if(name==='right'||name==='down'||name==='rotateRight') { communityRatingIndex=(communityRatingIndex+1)%4; return; } if(['confirm','start'].includes(name)) { rateCommunityPuzzle(communityRatingIndex); return; } if(name==='cancel'||name==='pause') { navigateApp(communityReturnUrl()); return; } return; } if(['confirm','start'].includes(name)) { if(CREATOR_TEST) { navigateApp(`${location.pathname}?creator=1`); return; } if(CREATOR_COURSE_INDEX>=0) { const nextIndex=CREATOR_COURSE_INDEX+1; navigateApp(nextIndex<CREATOR_COURSE_IDS.length?creatorCourseUrl(CREATOR_COURSE_IDS,nextIndex,CREATOR_COURSE_DATA):`${location.pathname}?creator=1`); return; } if(TRAINING_ACTIVE) { if(TRAINING_STEP<TRAINING_COURSE.length-1) startTrainingCourse(TRAINING_STEP+1); else finishTrainingCourse(); return; } resetGame(); puzzleLibraryPage=ACTIVE_PUZZLE?.terrain?1:0; const puzzles=selectablePuzzles(), current=Math.max(0,puzzles.findIndex(puzzle=>puzzle.id===PUZZLE_ID)); puzzleMenuIndex=Math.min(puzzles.length-1,current+1); phase='puzzleSelect'; return; } if(name==='cancel'||name==='pause') { if(CREATOR_TEST||CREATOR_COURSE_INDEX>=0) navigateApp(`${location.pathname}?creator=1`); else if(TRAINING_ACTIVE) leaveTrainingCourse(); else { resetGame(); phase='puzzleSelect'; } } return; }
+    if(phase==='puzzleFailed') { if(['confirm','start'].includes(name)) { resetGame(); phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); return; } if(name==='cancel'||name==='pause') { if(COMMUNITY_PUZZLE_ID) navigateApp(communityReturnUrl()); else if(CREATOR_TEST) navigateApp(`${location.pathname}?creator=1`); else if(TRAINING_ACTIVE) leaveTrainingCourse(); else { resetGame(); phase='puzzleSelect'; } } return; }
+    if(phase==='gameover') { if(ROGUE_ENABLED) { if(['confirm','start'].includes(name)) startNewRogueRun(); else if(name==='cancel'||name==='pause') { resetGame(); beginRogueRun(); } return; } if(['confirm','start'].includes(name)) { resetGame(); if(PLAY_MODE==='build') beginDraft(); else { phase='falling'; toast=''; toastUntil=0; gravityAt=performance.now()+gravityInterval(); } } if(name==='cancel'||name==='pause') { resetGame(); phase=PLAY_MODE==='daily'?'dailySelect':'title'; } return; }
     if(phase==='paused') {
       if(pausedFrom==='replay' && ['left','right','seekStart','seekEnd','speedDown','speedUp'].includes(name)) { handleReplayCommand(name); return; }
       if(name==='up'||name==='left'||name==='rotateLeft') { pauseMenuIndex=0; return; } if(name==='down'||name==='right'||name==='rotateRight') { pauseMenuIndex=1; return; }
-      if(['confirm','start'].includes(name)) { if(pauseMenuIndex===1) { resetGame(); phase='title'; } else togglePause(); return; }
+      if(['confirm','start'].includes(name)) { if(pauseMenuIndex===1) { if(TRAINING_ACTIVE) leaveTrainingCourse(); else { resetGame(); phase='title'; } } else togglePause(); return; }
       if(['pause','cancel'].includes(name)) { togglePause(); return; } return;
     }
     if(phase==='replay') { handleReplayCommand(name); return; }
@@ -3521,9 +3550,12 @@ if(document.documentElement.dataset.phoneUi==='1') {
         text(releaseWindow.armed?`予約済　${forecast.cleared}マス解放`:`決定で ばくはつ　${forecast.cleared}マス`,x+42,y+145,24,releaseWindow.armed?'#c9ffe0':'#fff1bd','left','900');
         text(plan.depth===1?`下そうじ ${cleanupPreview.length}マス`:(lineCap?`連鎖そうじ ${cleanupPreview.length}マス　完成行 ${lineRows.length}/${lineCap}`:`連鎖 ${plan.depth}　×${chainMultiplier(plan.depth)}`),x+42,y+171,24,'#effbff','left','800');
         ctx.fillStyle='#173141'; rr(x+346,y+125,310,66,12); ctx.strokeStyle=waitColor; ctx.lineWidth=2; ctx.stroke();
-        const clutch=clutchBonus(selected.pressure); text(clutch?`ギリギリ +${clutch}`:'選択はそのまま',x+364,y+145,24,clutch?'#ffe18a':'#c9e8f2','left','900');
-        const waitText=nextPressure>=RULES.pressure.threshold?'次で暴走':`次の圧力 ${nextPressure}/${RULES.pressure.threshold}`;
-        text(waitText,x+364,y+171,24,waitColor,'left','800');
+        const clutch=clutchBonus(selected.pressure), growth=nextGrowthForecast(selected);
+        const growthText=growth.growth?`次で +${growth.growth}マス`:(clutch?`今なら +${clutch}`:'次は連結なし');
+        const waitText=nextPressure>=RULES.pressure.threshold?'次で暴走':`圧 ${nextPressure}/${RULES.pressure.threshold}`;
+        const connectionText=growth.links?`${waitText}　接続+${growth.links}`:waitText;
+        text(growthText,x+364,y+145,24,growth.growth?'#9cf7c1':clutch?'#ffe18a':'#c9e8f2','left','900');
+        text(connectionText,x+364,y+171,22,waitColor,'left','800');
       }
       text(releaseWindow.armed?'起爆予約中':'選んだボム',x+w-30,y+32,24,releaseWindow.armed?'#8df7b6':'#ffcf67','right','800');
     }
@@ -3967,9 +3999,11 @@ if(document.documentElement.dataset.phoneUi==='1') {
         text(String(score).padStart(8,'0'),800,315,58,'#ffe18a','center','900');
         text(`手数　${turn}`,800,365,24,'#a7d8e7','center','700');
         ctx.strokeStyle='#29475e'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(560,402); ctx.lineTo(1040,402); ctx.stroke();
-        const arc=cleanupArc();
-        text(`盤面の手応え　${arc.title}　${arc.earned} / ${CLEANUP_ARC.length}`,800,438,30,arc.earned===3?'#9cf7c1':arc.earned?'#ffe18a':'#d8f2fa','center','900');
-        text(cleanupArcText(),800,476,24,'#d8f2fa','center','800');
+        const arc=cleanupArc(), review=rankedRunReview();
+        const reviewTitle=PLAY_MODE==='ranked'?`改善ポイント　${review.title}`:`盤面の手応え　${arc.title}　${arc.earned} / ${CLEANUP_ARC.length}`;
+        const reviewDetail=PLAY_MODE==='ranked'?review.detail:cleanupArcText();
+        text(reviewTitle,800,438,30,PLAY_MODE==='ranked'?'#ffe18a':arc.earned===3?'#9cf7c1':arc.earned?'#ffe18a':'#d8f2fa','center','900');
+        text(reviewDetail,800,476,20,'#d8f2fa','center','800');
         text(`爆発 ${runStats.releases}　　連鎖 ${runStats.maxChain||'---'}　　ライン ${runStats.lineClears}`,800,514,24,'#b7deea','center','700');
         text(`そうじ ${runStats.cleanupBlocks}マス　　暴走 ${runStats.runaways}　　到達速度 ${paceLevel()}`,800,548,24,'#b7deea','center','700');
         const resultPrefix=PLAY_MODE==='daily'?`${formatDailyDate(DAILY_DATE)}　日別`:'';
@@ -4098,8 +4132,10 @@ if(document.documentElement.dataset.phoneUi==='1') {
     phoneBottomBack();
   }
   function phoneDrawDailySelect() {
-    const dates=archiveDates(),items=dates.map(date=>{const record=dailyLeagueRecord(date);return {title:formatDailyDate(date),detail:record.medal?`${dailyMedalText(record.medal)}　${record.best.toLocaleString()}点`:'未挑戦',accent:record.medal?'#ffe18a':'#8bdcff'};});
-    phoneDrawListScreen('デイリー',items,dailyMenuIndex,index=>{dailyMenuIndex=index;command('start');},{count:8,detail:`連続 ${dailyLeagueSummary().streak}日`});
+    const dates=archiveDates(),items=dates.map(date=>{const record=dailyLeagueRecord(date);return {title:formatDailyDate(date),detail:record.medal?`${dailyMedalText(record.medal)}　${record.best.toLocaleString()}点`:'未挑戦',accent:record.medal?'#ffe18a':'#8bdcff'};}),count=8,pages=Math.ceil(items.length/count),page=Math.min(pages-1,Math.floor(dailyMenuIndex/count)),start=page*count,visible=items.slice(start,start+count);
+    phoneDrawListScreen('デイリー',visible,dailyMenuIndex-start,index=>{dailyMenuIndex=start+index;command('start');},{count,detail:`連続 ${dailyLeagueSummary().streak}日　${page+1}/${pages}`});
+    if(page>0) phoneButton(354,H-126,246,98,'新しい日へ',()=>{dailyMenuIndex=(page-1)*count;},{tone:'#17384a'});
+    if(page<pages-1) phoneButton(620,H-126,252,98,'古い日へ',()=>{dailyMenuIndex=(page+1)*count;},{tone:'#173b35',selected:true});
   }
   function phoneDrawDraft() {
     const items=draftOffers.map(card=>({title:`${card.icon} ${card.name}`,detail:card.text,accent:'#ffe18a'})); phoneHeader('カードドラフト',{detail:`${buildCards.length+1}枚目`});
@@ -4117,8 +4153,10 @@ if(document.documentElement.dataset.phoneUi==='1') {
     phoneDrawListScreen('ラン記録',items,Math.min(rogueHistoryIndex,items.length-1),index=>{rogueHistoryIndex=index;},{count:8});
   }
   function phoneDrawCardLibrary() {
-    phoneHeader('カード辞典',{detail:`${cardLibraryIndex+1}/${BUILD_POOL.length}`}); const page=Math.floor(cardLibraryIndex/6),visible=BUILD_POOL.slice(page*6,page*6+6);
+    const page=Math.floor(cardLibraryIndex/6),pages=Math.ceil(BUILD_POOL.length/6),visible=BUILD_POOL.slice(page*6,page*6+6); phoneHeader('カード辞典',{detail:`${cardLibraryIndex+1}/${BUILD_POOL.length}　${page+1}/${pages}ページ`});
     visible.forEach((card,offset)=>{const index=page*6+offset,col=offset%2,row=Math.floor(offset/2),x=34+col*424,y=170+row*340,available=cardUnlocked(card,rogueHistory());phoneMenuCard(x,y,408,314,available?`${card.icon} ${card.name}`:'未解放',available?card.text:unlockRequirement(card),cardLibraryIndex===index,()=>{cardLibraryIndex=index;},{accent:available?'#ffe18a':'#607985'});}); phoneBottomBack();
+    if(page>0) phoneButton(354,H-126,246,98,'前のページ',()=>{cardLibraryIndex=Math.max(0,(page-1)*6);},{tone:'#17384a'});
+    if(page<pages-1) phoneButton(620,H-126,252,98,'次のページ',()=>{cardLibraryIndex=Math.min(BUILD_POOL.length-1,(page+1)*6);},{tone:'#173b35',selected:true});
   }
   function phoneDrawRogueMap() {
     const routes=rogueRoutes(),items=routes.map(route=>({title:route.name,detail:`${route.detail}　${route.risk||''}`,accent:route.kind==='elite'?'#ffb07c':route.kind==='rest'?'#9cf7c1':'#8bdcff'}));
