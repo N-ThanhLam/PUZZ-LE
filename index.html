@@ -1519,7 +1519,7 @@ if(document.documentElement.dataset.phoneUi==='1') {
       const settled=settlePvpAttack(attack); if(settled.attack) outgoingAttacks.push(settled.attack);
       if(settled.countered) pvpFeedback=`妨害 ${settled.countered} 相殺`;
     }
-    applyTerrainDetonation(blast); const attributeFeedback=applyAttributeEffect(attributeColor,blast,removed); applyGravity(); clearExposedIce(); advanceTerrain();
+    applyTerrainDetonation(blast); const attributeFeedback=applyAttributeEffect(attributeColor,blast,removed); if(maxDepth>=2) applyGravity(); clearExposedIce(); advanceTerrain();
     if(activatedCards.size) { const names=[...activatedCards].map(id=>BUILD_POOL.find(card=>card.id===id)?.name||id).join(' ＋ '); cardEffectText=[names,...cardFeedback].join('  /  '); cardEffectUntil=performance.now()+1400; recordTelemetry('card-activation',{cards:[...activatedCards],effects:[...cardFeedback]}); }
     recordTelemetry('release',{chain:maxDepth,score:gained,lines:lineRows.length,cleanup:cleanupRemoved,cards:cardFeedback,activatedCards:[...activatedCards],attribute:attributeFeedback,pvp:pvpFeedback,clutch}); say(`${maxDepth} 連鎖${cleanupRemoved?`　そうじ ${cleanupRemoved}マス`:''}${lineRows.length?`　${lineRows.length}ライン消し！`:''}　+${gained}`, 2200); updateBuildTrial();
     detectAndBuildGroups({preserveCharged:false}); updateRunMetrics(); resolvePuzzle(maxDepth); completeRogueEncounter();
